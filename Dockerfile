@@ -21,4 +21,7 @@ RUN apt-get update \
 
 RUN update-ca-certificates
 
+RUN useradd -ms /bin/bash bot
+USER bot
+
 CMD ["/bin/bot"]
