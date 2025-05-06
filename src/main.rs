@@ -1,4 +1,4 @@
-use std::{env, error::Error, sync::Arc};
+use std::{env, sync::Arc};
 use tracing::{info, instrument, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, filter::Directive};
 use twilight_cache_inmemory::{DefaultInMemoryCache, ResourceType};
@@ -43,10 +43,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[instrument(skip_all, fields(event = ?event.kind()))]
-async fn handle_event(
-    event: Event,
-    _http: Arc<HttpClient>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn handle_event(event: Event, _http: Arc<HttpClient>) -> anyhow::Result<()> {
     match event {
         _ => {}
     }
