@@ -1,5 +1,5 @@
 ARG RUST_VERSION=1.86.0-stable
-ARG APP_NAME=rustcentral_bot
+ARG APP_NAME=bot
 
 FROM clux/muslrust:${RUST_VERSION} AS chef
 USER root
