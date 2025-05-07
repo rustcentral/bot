@@ -9,6 +9,7 @@ use async_openai::{
         CreateChatCompletionRequestArgs,
     },
 };
+use serde::Deserialize;
 use tokio::{
     sync::{broadcast, mpsc},
     time::{Instant, sleep_until},
@@ -194,6 +195,14 @@ pub async fn serve_ai_channel(
     }
 }
 
+/// Sent by the model in response to a chat history.
+///
+/// A custom type is used here as some (gemini *caugh caugh*) APIs dont return all fields.
+#[derive(Debug, Deserialize)]
+struct ChatCompletionResponse {
+    choices: Vec<ChatChoice>,
+}
+
 /// Send the chat history to the LLM api and generate a response based on this history.
 async fn generate_response(
     client: &AIClient<OpenAIConfig>,
@@ -207,9 +216,9 @@ async fn generate_response(
         .build()
         .context("Failed to build request")?;
 
-    let response = client
+    let response: ChatCompletionResponse = client
         .chat()
-        .create(request)
+        .create_byot(request)
         .await
         .context("LLM api returned an error")?;
 
