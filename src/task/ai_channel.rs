@@ -1,5 +1,6 @@
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
+use anyhow::Context;
 use async_openai::{
     Client as AIClient,
     config::OpenAIConfig,
@@ -22,6 +23,8 @@ use twilight_model::{
     },
     util::Timestamp,
 };
+
+use crate::error::send_error_msg;
 
 pub async fn serve_ai_channel(
     api_key: String,
@@ -81,13 +84,14 @@ pub async fn serve_ai_channel(
     });
 
     let mut last_response_time = Instant::now();
+    let mut last_error_response = None;
     let mut history = VecDeque::new();
 
     // Batch new messages together to avoid generating a separate response to each one.
     let mut new_messages = Vec::new();
     loop {
         // Wait to avoid getting rate limited by the LLM endpoint.
-        sleep_until(last_response_time + Duration::from_millis(1100)).await;
+        sleep_until(last_response_time + Duration::from_millis(1500)).await;
 
         let recv_amt = message_rx
             .recv_many(&mut new_messages, max_history_size)
@@ -119,46 +123,44 @@ pub async fn serve_ai_channel(
             .chain(history.iter().map(|i| i.clone()))
             .collect();
 
-        let request = CreateChatCompletionRequestArgs::default()
-            .model(&model_name)
-            .messages(messages)
-            .build();
-        let request = match request {
-            Ok(v) => v,
-            Err(err) => {
-                // This should not happen, hopefully.
-                error!("Failed to build request: {err}");
-                continue;
-            }
-        };
-
-        let response = client.chat().create(request).await;
+        let response = generate_response(&client, &model_name, messages).await;
         last_response_time = Instant::now();
-        let response = match response {
+
+        // Delete the previous error message. This should happen both if there is a new error
+        // message or there is another error.
+        if let Some(prev_err_msg_id) = last_error_response {
+            let http2 = http.clone();
+            tokio::spawn(async move {
+                if let Err(err) = http2.delete_message(channel_id, prev_err_msg_id).await {
+                    error!("Failed to delete previous error message: {err}");
+                }
+            });
+
+            last_error_response = None;
+        }
+
+        let response_content = match response {
             Ok(v) => v,
             Err(err) => {
-                error!("LLM api returned an error: {err}");
-                continue;
-            }
-        };
+                error!("Error creating response: {err:?}");
 
-        let response_content = match response.choices.first() {
-            Some(ChatChoice {
-                message:
-                    ChatCompletionResponseMessage {
-                        content: Some(content),
-                        ..
-                    },
-                ..
-            }) => content.as_str(),
-            _ => {
-                error!("LLM response did not include message content");
+                // Log the error in the channel.
+                let err_msg = send_error_msg(
+                    &http,
+                    channel_id,
+                    &format!("Something went wrong while generating a response\n```\n{err}\n```"),
+                )
+                .await;
+
+                if let Some(err_msg) = err_msg {
+                    last_error_response = Some(err_msg.id);
+                };
                 continue;
             }
         };
 
         history.push_back(ChatCompletionRequestMessage::Assistant(
-            response_content.into(),
+            response_content.as_str().into(),
         ));
 
         if response_content.trim() == "<empty/>" {
@@ -175,6 +177,46 @@ pub async fn serve_ai_channel(
             continue;
         }
     }
+
+    // Don't clutter the channel with lots of error messages.
+    if let Some(msg_id) = last_error_response {
+        _ = http.delete_message(channel_id, msg_id).await;
+    }
+}
+
+/// Send the chat history to the LLM api and generate a response based on this history.
+async fn generate_response(
+    client: &AIClient<OpenAIConfig>,
+    model_name: &str,
+    history: Vec<ChatCompletionRequestMessage>,
+) -> anyhow::Result<String> {
+    let request = CreateChatCompletionRequestArgs::default()
+        .model(model_name)
+        .messages(history)
+        .build()
+        .context("Failed to build request")?;
+
+    let response = client
+        .chat()
+        .create(request)
+        .await
+        .context("LLM api returned an error")?;
+
+    let response_content = match response.choices.first() {
+        Some(ChatChoice {
+            message:
+                ChatCompletionResponseMessage {
+                    content: Some(content),
+                    ..
+                },
+            ..
+        }) => content.as_str(),
+        _ => {
+            anyhow::bail!("LLM response did not include message content");
+        }
+    };
+
+    Ok(response_content.to_string())
 }
 
 #[derive(Debug)]
