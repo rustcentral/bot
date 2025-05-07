@@ -158,9 +158,16 @@ pub async fn serve_ai_channel(
                 continue;
             }
         };
+        // Take only the first 2000 characters to stay within the discord character limit.
+        let response_content = &response_content[..=response_content
+            .char_indices()
+            .take(2000)
+            .map(|v| v.0)
+            .last()
+            .unwrap_or(0)];
 
         history.push_back(ChatCompletionRequestMessage::Assistant(
-            response_content.as_str().into(),
+            response_content.into(),
         ));
 
         if response_content.trim() == "<empty/>" {
@@ -192,6 +199,7 @@ async fn generate_response(
 ) -> anyhow::Result<String> {
     let request = CreateChatCompletionRequestArgs::default()
         .model(model_name)
+        .max_tokens(400u32)
         .messages(history)
         .build()
         .context("Failed to build request")?;
