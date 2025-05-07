@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use async_openai::{
     Client as AIClient,
@@ -8,7 +8,10 @@ use async_openai::{
         CreateChatCompletionRequestArgs,
     },
 };
-use tokio::sync::{broadcast, mpsc};
+use tokio::{
+    sync::{broadcast, mpsc},
+    time::{Instant, sleep_until},
+};
 use tracing::{debug, error};
 use twilight_gateway::Event;
 use twilight_http::Client;
@@ -81,15 +84,24 @@ pub async fn serve_ai_channel(
         }
     });
 
+    let mut last_response_time = Instant::now();
     let mut history = VecDeque::new();
 
     // Batch new messages together to avoid generating a separate response to each one.
     let mut new_messages = Vec::new();
-    while message_rx
-        .recv_many(&mut new_messages, max_history_size)
-        .await
-        > 0
-    {
+    loop {
+        // Wait to avoid getting rate limited by the LLM endpoint.
+        sleep_until(last_response_time + Duration::from_millis(1100)).await;
+
+        let recv_amt = message_rx
+            .recv_many(&mut new_messages, max_history_size)
+            .await;
+
+        if recv_amt == 0 {
+            // The message ingestion channel has closed, gracefully shut down this task.
+            break;
+        }
+
         let system_prompt = ChatCompletionRequestMessage::System(
             include_str!("./ai_channel/system_prompt.txt").into(),
         );
@@ -138,6 +150,7 @@ pub async fn serve_ai_channel(
         };
 
         let response = client.chat().create(request).await;
+        last_response_time = Instant::now();
         let response = match response {
             Ok(v) => v,
             Err(err) => {
