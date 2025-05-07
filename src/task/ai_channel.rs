@@ -35,6 +35,11 @@ pub async fn serve_ai_channel(
         OpenAIConfig::new()
             .with_api_base(api_base)
             .with_api_key(api_key),
+    )
+    .with_backoff(
+        backoff::ExponentialBackoffBuilder::new()
+            .with_max_elapsed_time(Some(Duration::from_secs(5)))
+            .build(),
     );
 
     let max_history_size = 32;
