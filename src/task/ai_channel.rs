@@ -170,7 +170,7 @@ pub async fn serve_ai_channel(
             .last()
             .unwrap_or(0)];
 
-        if response_content.trim() == "<empty/>" {
+        if response_content.contains("<empty/>") {
             debug!("Model chose to not respond");
             continue;
         }
