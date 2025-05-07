@@ -19,7 +19,7 @@ use twilight_http::Client;
 use twilight_model::{
     id::{
         Id,
-        marker::{ChannelMarker, UserMarker},
+        marker::{ChannelMarker, MessageMarker, UserMarker},
     },
     util::Timestamp,
 };
@@ -65,6 +65,8 @@ pub async fn serve_ai_channel(
             }
 
             let res = message_tx.try_send(UserMessage {
+                message_id: message.id,
+                reply_to: message.reference.as_ref().map(|r| r.message_id).flatten(),
                 content: message.content.clone(),
                 sender_name: message.author.name.clone(),
                 sender_id: message.author.id,
@@ -229,6 +231,8 @@ async fn generate_response(
 
 #[derive(Debug)]
 struct UserMessage {
+    message_id: Id<MessageMarker>,
+    reply_to: Option<Id<MessageMarker>>,
     content: String,
     sender_name: String,
     sender_display_name: Option<String>,
@@ -240,7 +244,12 @@ impl UserMessage {
     /// Serialize the message into the format expected by the LLM.
     fn format_message(&self) -> String {
         format!(
-            "<msg>author_name: {}\nauthor_id: {}{}\nsent_at: {}\n{}</msg>",
+            "<msg>message_id: {}\n{}author_name: {}\nauthor_id: {}{}\nsent_at: {}\n{}</msg>",
+            self.message_id,
+            match self.reply_to {
+                Some(id) => format!("repling_to: {id}\n"),
+                None => String::new(),
+            },
             self.sender_name,
             match &self.sender_display_name {
                 Some(name) => format!(" ({name})"),
