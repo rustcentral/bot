@@ -23,15 +23,6 @@ use twilight_model::{
     util::Timestamp,
 };
 
-#[derive(Debug)]
-struct UserMessage {
-    content: String,
-    sender_name: String,
-    sender_display_name: Option<String>,
-    sender_id: Id<UserMarker>,
-    sent_at: Timestamp,
-}
-
 pub async fn serve_ai_channel(
     api_key: String,
     api_base: String,
@@ -107,20 +98,7 @@ pub async fn serve_ai_channel(
         );
 
         for msg in &new_messages {
-            let msg = ChatCompletionRequestMessage::User(
-                format!(
-                    "<msg>author_name: {}\nauthor_id: {}{}\nsent_at: {}\n{}</msg>",
-                    msg.sender_name,
-                    match &msg.sender_display_name {
-                        Some(name) => format!(" ({name})"),
-                        None => String::new(),
-                    },
-                    msg.sender_id,
-                    msg.sent_at.iso_8601(),
-                    msg.content
-                )
-                .into(),
-            );
+            let msg = ChatCompletionRequestMessage::User(msg.format_message().into());
 
             history.push_back(msg);
         }
@@ -191,5 +169,31 @@ pub async fn serve_ai_channel(
             error!("Failed to send response message: {err}");
             continue;
         }
+    }
+}
+
+#[derive(Debug)]
+struct UserMessage {
+    content: String,
+    sender_name: String,
+    sender_display_name: Option<String>,
+    sender_id: Id<UserMarker>,
+    sent_at: Timestamp,
+}
+
+impl UserMessage {
+    /// Serialize the message into the format expected by the LLM.
+    fn format_message(&self) -> String {
+        format!(
+            "<msg>author_name: {}\nauthor_id: {}{}\nsent_at: {}\n{}</msg>",
+            self.sender_name,
+            match &self.sender_display_name {
+                Some(name) => format!(" ({name})"),
+                None => String::new(),
+            },
+            self.sender_id,
+            self.sent_at.iso_8601(),
+            self.content
+        )
     }
 }
