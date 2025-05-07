@@ -93,6 +93,7 @@ pub async fn serve_ai_channel(
     let mut new_messages = Vec::new();
     loop {
         // Wait to avoid getting rate limited by the LLM endpoint.
+        // TODO: this could be handled better.
         sleep_until(last_response_time + Duration::from_millis(1500)).await;
 
         let recv_amt = message_rx
