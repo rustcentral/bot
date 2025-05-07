@@ -43,7 +43,8 @@ pub async fn serve_ai_channel(
             .with_api_key(api_key),
     );
 
-    let (message_tx, mut message_rx) = mpsc::unbounded_channel();
+    let max_history_size = 32;
+    let (message_tx, mut message_rx) = mpsc::channel(max_history_size / 2);
 
     // Spawn a task to handle incoming message events and queue them in the unbounded channel
     // created above.
@@ -61,7 +62,7 @@ pub async fn serve_ai_channel(
                 continue;
             }
 
-            _ = message_tx.send(UserMessage {
+            let res = message_tx.try_send(UserMessage {
                 content: message.content.clone(),
                 sender_name: message.author.name.clone(),
                 sender_id: message.author.id,
@@ -73,15 +74,22 @@ pub async fn serve_ai_channel(
                     .flatten()
                     .or_else(|| message.author.global_name.clone()),
             });
+
+            if let Err(mpsc::error::TrySendError::Closed(_)) = res {
+                return;
+            }
         }
     });
 
-    let max_history_size = 32;
     let mut history = VecDeque::new();
 
     // Batch new messages together to avoid generating a separate response to each one.
     let mut new_messages = Vec::new();
-    while message_rx.recv_many(&mut new_messages, 100).await > 0 {
+    while message_rx
+        .recv_many(&mut new_messages, max_history_size)
+        .await
+        > 0
+    {
         let system_prompt = ChatCompletionRequestMessage::System(
             include_str!("./ai_channel/system_prompt.txt").into(),
         );
