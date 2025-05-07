@@ -169,14 +169,14 @@ pub async fn serve_ai_channel(
             .last()
             .unwrap_or(0)];
 
-        history.push_back(ChatCompletionRequestMessage::Assistant(
-            response_content.into(),
-        ));
-
         if response_content.trim() == "<empty/>" {
             debug!("Model chose to not respond");
             continue;
         }
+
+        history.push_back(ChatCompletionRequestMessage::Assistant(
+            response_content.into(),
+        ));
 
         if let Err(err) = http
             .create_message(channel_id)
