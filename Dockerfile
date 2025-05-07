@@ -1,27 +1,33 @@
-FROM docker.io/rust:latest AS builder
+ARG RUST_VERSION=1.86.0-stable
+ARG APP_NAME=bot
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends sccache
-ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
+FROM clux/muslrust:${RUST_VERSION} AS chef
+USER root
+RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+RUN cargo binstall --no-confirm cargo-chef
+WORKDIR /app
 
-WORKDIR /build
-COPY ./ ./
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-  cargo build --release --bin bot && sccache --show-stats
+FROM chef AS builder
+ARG APP_NAME
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
+COPY . .
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin ${APP_NAME}
 
+FROM alpine:3.21 AS final
+ARG APP_NAME
+ENV APP_NAME=${APP_NAME}
 
-FROM debian:bookworm-slim
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/${APP_NAME} /usr/local/bin/
 
-COPY --from=builder /build/target/release/bot /bin/bot
+RUN apk add bash
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates
+RUN addgroup -S appuser && adduser -S appuser -G appuser
+USER appuser
 
-RUN update-ca-certificates
-
-RUN useradd -ms /bin/bash bot
-USER bot
-
-CMD ["/bin/bot"]
+SHELL ["/bin/bash", "-c"]
+CMD /usr/local/bin/${APP_NAME}
