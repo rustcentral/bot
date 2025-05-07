@@ -24,7 +24,10 @@ ENV APP_NAME=${APP_NAME}
 
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/${APP_NAME} /usr/local/bin/
 
+RUN apk add bash
+
 RUN addgroup -S appuser && adduser -S appuser -G appuser
 USER appuser
 
+SHELL ["/bin/bash", "-c"]
 CMD /usr/local/bin/${APP_NAME}
