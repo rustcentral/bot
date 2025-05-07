@@ -143,7 +143,7 @@ pub async fn serve_ai_channel(
             last_error_response = None;
         }
 
-        let response_content = match response {
+        let mut response_content = match response {
             Ok(v) => v,
             Err(err) => {
                 error!("Error creating response: {err:?}");
@@ -163,12 +163,14 @@ pub async fn serve_ai_channel(
             }
         };
         // Take only the first 2000 characters to stay within the discord character limit.
-        let response_content = &response_content[..=response_content
-            .char_indices()
-            .take(2000)
-            .map(|v| v.0)
-            .last()
-            .unwrap_or(0)];
+        response_content.truncate(
+            response_content
+                .char_indices()
+                .take(2000)
+                .map(|v| v.0 + v.1.len_utf8())
+                .last()
+                .unwrap_or(0),
+        );
 
         if response_content.contains("<empty/>") {
             debug!("Model chose to not respond");
@@ -176,7 +178,7 @@ pub async fn serve_ai_channel(
         }
 
         history.push_back(ChatCompletionRequestMessage::Assistant(
-            response_content.into(),
+            response_content.as_str().into(),
         ));
 
         if let Err(err) = http
