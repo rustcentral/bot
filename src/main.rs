@@ -98,7 +98,6 @@ async fn main() -> anyhow::Result<()> {
         let event = Arc::new(event);
         _ = event_tx.send(event);
     }
-    debug!("{:?}", shard.state());
 
     Ok(())
 }
