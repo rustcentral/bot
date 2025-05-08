@@ -1,13 +1,14 @@
+mod config;
 mod constants;
 mod error;
 mod task;
 
 use anyhow::Context;
 use async_openai::{Client as AIClient, config::OpenAIConfig};
-use std::{env, sync::Arc, time::Duration};
+use std::{env, path::Path, sync::Arc, time::Duration};
 use task::ai_channel::serve_ai_channel;
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, level_filters::LevelFilter, warn};
+use tracing::{error, info, level_filters::LevelFilter, warn};
 use tracing_subscriber::{EnvFilter, filter::Directive};
 use twilight_cache_inmemory::{DefaultInMemoryCache, ResourceType};
 use twilight_gateway::{EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
@@ -23,15 +24,15 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let token = env::var("DISCORD_TOKEN")?;
+    let config = config::Configuration::read_with_env("CONFIG_PATH", [Path::new("bot.toml")])?;
 
     let mut shard = Shard::new(
         ShardId::ONE,
-        token.clone(),
+        config.token.clone(),
         Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT,
     );
 
-    let http = Arc::new(HttpClient::builder().token(token).build());
+    let http = Arc::new(HttpClient::builder().token(config.token).build());
 
     let cache = DefaultInMemoryCache::builder()
         .resource_types(ResourceType::MESSAGE)
