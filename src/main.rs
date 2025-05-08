@@ -1,4 +1,6 @@
-use std::{env, sync::Arc};
+mod config;
+
+use std::{path::Path, sync::Arc};
 use tracing::{info, instrument, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, filter::Directive};
 use twilight_cache_inmemory::{DefaultInMemoryCache, ResourceType};
@@ -15,11 +17,11 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let token = env::var("DISCORD_TOKEN")?;
+    let config = config::Configuration::read_with_env("CONFIG_PATH", [Path::new("bot.toml")])?;
 
-    let mut shard = Shard::new(ShardId::ONE, token.clone(), Intents::all());
+    let mut shard = Shard::new(ShardId::ONE, config.token.clone(), Intents::all());
 
-    let http = Arc::new(HttpClient::builder().token(token).build());
+    let http = Arc::new(HttpClient::builder().token(config.token).build());
 
     let cache = DefaultInMemoryCache::builder()
         .resource_types(ResourceType::MESSAGE)
