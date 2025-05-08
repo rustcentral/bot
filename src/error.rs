@@ -6,7 +6,7 @@ use twilight_model::{
 };
 use twilight_util::builder::embed::EmbedBuilder;
 
-use crate::constants::colors;
+pub const ERROR_COLOR: u32 = 0xff_7f_7f;
 
 /// Utility function to send an error message in a discord channel.
 ///
@@ -20,7 +20,7 @@ pub async fn send_error_msg(
     let res = http
         .create_message(channel_id)
         .embeds(&[EmbedBuilder::new()
-            .color(colors::ERROR)
+            .color(ERROR_COLOR)
             .description(message)
             .build()])
         .await;
