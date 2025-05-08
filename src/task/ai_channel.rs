@@ -28,25 +28,14 @@ use twilight_model::{
 use crate::error::send_error_msg;
 
 pub async fn serve_ai_channel(
-    api_key: String,
-    api_base: String,
+    llm_client: AIClient<OpenAIConfig>,
     model_name: String,
+    max_history_size: u32,
     channel_id: Id<ChannelMarker>,
     mut events: broadcast::Receiver<Arc<Event>>,
     http: Arc<Client>,
 ) {
-    let client = AIClient::with_config(
-        OpenAIConfig::new()
-            .with_api_base(api_base)
-            .with_api_key(api_key),
-    )
-    .with_backoff(
-        backoff::ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(Some(Duration::from_secs(5)))
-            .build(),
-    );
-
-    let max_history_size = 32;
+    let max_history_size = max_history_size as usize;
     let (message_tx, mut message_rx) = mpsc::channel(max_history_size / 2);
 
     // Spawn a task to handle incoming message events and queue them in the unbounded channel
@@ -120,6 +109,7 @@ pub async fn serve_ai_channel(
         // Downsize the history buffer by removing some elements from the front until it is back to
         // `max_history_size`. This is to ensure all messages fit in the context window.
         let remove_from_front = history.len().saturating_sub(max_history_size);
+        // TODO: count history in tokens rather amount of messages.
         history.drain(0..remove_from_front);
 
         let messages: Vec<_> = [system_prompt]
@@ -127,7 +117,7 @@ pub async fn serve_ai_channel(
             .chain(history.iter().map(|i| i.clone()))
             .collect();
 
-        let response = generate_response(&client, &model_name, messages).await;
+        let response = generate_response(&llm_client, &model_name, messages).await;
         last_response_time = Instant::now();
 
         // Delete the previous error message. This should happen both if there is a new error
