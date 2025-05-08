@@ -27,15 +27,39 @@ use twilight_model::{
 
 use crate::error::send_error_msg;
 
-pub async fn serve_ai_channel(
-    llm_client: AIClient<OpenAIConfig>,
-    model_name: String,
-    max_history_size: u32,
+#[derive(Debug, Deserialize)]
+pub struct Configuration {
     channel_id: Id<ChannelMarker>,
+    llm_api_key: String,
+    llm_api_base: String,
+    model_name: String,
+    /// The maximum amount of messages to include as history when generating a response. This does
+    /// *not* include the system prompt.
+    #[serde(default = "default_max_history_size")]
+    max_history_size: u32,
+}
+
+fn default_max_history_size() -> u32 {
+    32
+}
+
+pub async fn serve_ai_channel(
+    config: Configuration,
     mut events: broadcast::Receiver<Arc<Event>>,
     http: Arc<Client>,
 ) {
-    let max_history_size = max_history_size as usize;
+    let llm_client = AIClient::with_config(
+        OpenAIConfig::new()
+            .with_api_base(config.llm_api_base)
+            .with_api_key(config.llm_api_key),
+    )
+    .with_backoff(
+        backoff::ExponentialBackoffBuilder::new()
+            .with_max_elapsed_time(Some(Duration::from_secs(5)))
+            .build(),
+    );
+
+    let max_history_size = config.max_history_size as usize;
     let (message_tx, mut message_rx) = mpsc::channel(max_history_size / 2);
 
     // Spawn a task to handle incoming message events and queue them in the unbounded channel
@@ -50,7 +74,7 @@ pub async fn serve_ai_channel(
                 Ok(_) => continue,
             };
 
-            if message.channel_id != channel_id || message.author.bot {
+            if message.channel_id != config.channel_id || message.author.bot {
                 continue;
             }
 
@@ -117,7 +141,7 @@ pub async fn serve_ai_channel(
             .chain(history.iter().map(|i| i.clone()))
             .collect();
 
-        let response = generate_response(&llm_client, &model_name, messages).await;
+        let response = generate_response(&llm_client, &config.model_name, messages).await;
         last_response_time = Instant::now();
 
         // Delete the previous error message. This should happen both if there is a new error
@@ -125,7 +149,10 @@ pub async fn serve_ai_channel(
         if let Some(prev_err_msg_id) = last_error_response {
             let http2 = http.clone();
             tokio::spawn(async move {
-                if let Err(err) = http2.delete_message(channel_id, prev_err_msg_id).await {
+                if let Err(err) = http2
+                    .delete_message(config.channel_id, prev_err_msg_id)
+                    .await
+                {
                     error!("Failed to delete previous error message: {err}");
                 }
             });
@@ -141,7 +168,7 @@ pub async fn serve_ai_channel(
                 // Log the error in the channel.
                 let err_msg = send_error_msg(
                     &http,
-                    channel_id,
+                    config.channel_id,
                     &format!("Something went wrong while generating a response\n```\n{err}\n```"),
                 )
                 .await;
@@ -172,7 +199,7 @@ pub async fn serve_ai_channel(
         ));
 
         if let Err(err) = http
-            .create_message(channel_id)
+            .create_message(config.channel_id)
             .content(&response_content)
             .await
         {
@@ -183,7 +210,7 @@ pub async fn serve_ai_channel(
 
     // Don't clutter the channel with lots of error messages.
     if let Some(msg_id) = last_error_response {
-        _ = http.delete_message(channel_id, msg_id).await;
+        _ = http.delete_message(config.channel_id, msg_id).await;
     }
 }
 
