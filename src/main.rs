@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
 
     // All incoming events are sent through the broadcast channel and each event is handled by every
     // task that handles events.
-    let (event_tx, event_rx) = broadcast::channel(128);
+    let (event_tx, event_rx) = broadcast::channel(16);
 
     if let Some(ai_channel_config) = config.ai_channel {
         tokio::spawn(serve_ai_channel(
