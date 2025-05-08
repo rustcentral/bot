@@ -1,10 +1,10 @@
+mod ai_channel;
 mod config;
 mod constants;
 mod error;
-mod task;
 
+use ai_channel::serve_ai_channel;
 use std::{path::Path, sync::Arc};
-use task::ai_channel::serve_ai_channel;
 use tokio::sync::broadcast;
 use tracing::{info, level_filters::LevelFilter, warn};
 use tracing_subscriber::{EnvFilter, filter::Directive};

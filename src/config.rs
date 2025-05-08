@@ -6,7 +6,7 @@ use std::{
 use anyhow::Context;
 use serde::Deserialize;
 
-use crate::task::ai_channel;
+use crate::ai_channel;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
