@@ -3,11 +3,13 @@ mod config;
 mod error;
 
 use std::{path::Path, sync::Arc};
-use tokio::sync::broadcast;
-use tracing::{info, level_filters::LevelFilter, warn};
+use tokio::{select, sync::broadcast};
+use tracing::{error, info, level_filters::LevelFilter, warn};
 use tracing_subscriber::{EnvFilter, filter::Directive};
-use twilight_cache_inmemory::{DefaultInMemoryCache, ResourceType};
-use twilight_gateway::{EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
+use twilight_cache_inmemory::{DefaultInMemoryCache, InMemoryCache, ResourceType};
+use twilight_gateway::{
+    CloseFrame, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _,
+};
 use twilight_http::Client as HttpClient;
 
 #[tokio::main]
@@ -22,17 +24,20 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::Configuration::read_with_env("CONFIG_PATH", [Path::new("bot.toml")])?;
 
-    let mut shard = Shard::new(
+    let shard = Shard::new(
         ShardId::ONE,
         config.token.clone(),
         Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT,
     );
+    let shard_sender = shard.sender();
 
     let http = Arc::new(HttpClient::builder().token(config.token).build());
 
-    let cache = DefaultInMemoryCache::builder()
-        .resource_types(ResourceType::MESSAGE)
-        .build();
+    let cache = Arc::new(
+        DefaultInMemoryCache::builder()
+            .resource_types(ResourceType::empty())
+            .build(),
+    );
 
     // All incoming events are sent through the broadcast channel and each event is handled by every
     // task that handles events.
@@ -49,12 +54,34 @@ async fn main() -> anyhow::Result<()> {
     }
 
     info!("Listening for events");
+    select! {
+        _ = handle_events(shard, cache, event_tx) => {},
+        res = await_exit_signal() => {
+            if let Err(err) = res {
+                error!("error waiting exit signal: {err}");
+            }
+        },
+    }
+    _ = shard_sender.close(CloseFrame::NORMAL);
+    Ok(())
+}
+
+/// Listen for discord events and broadcast them to all event handlers.
+async fn handle_events(
+    mut shard: Shard,
+    cache: Arc<InMemoryCache>,
+    event_tx: broadcast::Sender<Arc<Event>>,
+) {
     while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
         let Ok(event) = item else {
             tracing::warn!(source = ?item.unwrap_err(), "error receiving event");
 
             continue;
         };
+
+        if let Event::GatewayClose(Some(info)) = &event {
+            error!(code = info.code, reason = %info.reason, "Gateway connection closed");
+        }
 
         // Update the cache with the event.
         cache.update(&event);
@@ -64,6 +91,27 @@ async fn main() -> anyhow::Result<()> {
         let event = Arc::new(event);
         _ = event_tx.send(event);
     }
+}
 
-    Ok(())
+/// Helper function to listen for an exit signal regardless of platform.
+async fn await_exit_signal() -> std::io::Result<()> {
+    // This depends on the platform as docker will send a sigterm signal which does not exist on
+    // non-unix platforms (like windows).
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        let mut sigterm = signal(SignalKind::terminate())?;
+        let mut sigint = signal(SignalKind::interrupt())?;
+        select! {
+            _ = sigterm.recv() => Ok(()),
+            _ = sigint.recv() => Ok(()),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        use tokio::signal;
+
+        signal::ctrl_c()
+    }
 }
