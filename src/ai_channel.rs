@@ -1,3 +1,5 @@
+mod user_message;
+
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use anyhow::Context;
@@ -17,13 +19,8 @@ use tokio::{
 use tracing::{debug, error};
 use twilight_gateway::Event;
 use twilight_http::Client;
-use twilight_model::{
-    id::{
-        Id,
-        marker::{ChannelMarker, MessageMarker, UserMarker},
-    },
-    util::Timestamp,
-};
+use twilight_model::id::{Id, marker::ChannelMarker};
+use user_message::queue_messages;
 
 use crate::error::send_error_msg;
 
@@ -43,9 +40,10 @@ fn default_max_history_size() -> u32 {
     32
 }
 
-pub async fn serve_ai_channel(
+/// Runs the main AI channel logic.
+pub async fn serve(
     config: Configuration,
-    mut events: broadcast::Receiver<Arc<Event>>,
+    events: broadcast::Receiver<Arc<Event>>,
     http: Arc<Client>,
 ) {
     let llm_client = AIClient::with_config(
@@ -62,42 +60,8 @@ pub async fn serve_ai_channel(
     let max_history_size = config.max_history_size as usize;
     let (message_tx, mut message_rx) = mpsc::channel(max_history_size / 2);
 
-    // Spawn a task to handle incoming message events and queue them in the unbounded channel
-    // created above.
-    tokio::spawn(async move {
-        loop {
-            let event = events.recv().await;
-            let message = match event.as_deref() {
-                Err(broadcast::error::RecvError::Closed) => return,
-                Err(_) => continue,
-                Ok(Event::MessageCreate(msg)) => msg,
-                Ok(_) => continue,
-            };
-
-            if message.channel_id != config.channel_id || message.author.bot {
-                continue;
-            }
-
-            let res = message_tx.try_send(UserMessage {
-                message_id: message.id,
-                reply_to: message.reference.as_ref().map(|r| r.message_id).flatten(),
-                content: message.content.clone(),
-                sender_name: message.author.name.clone(),
-                sender_id: message.author.id,
-                sent_at: message.timestamp,
-                sender_display_name: message
-                    .member
-                    .as_ref()
-                    .map(|m| m.nick.clone())
-                    .flatten()
-                    .or_else(|| message.author.global_name.clone()),
-            });
-
-            if let Err(mpsc::error::TrySendError::Closed(_)) = res {
-                return;
-            }
-        }
-    });
+    // Spawn a task to handle incoming message events and queue them in the channel above.
+    tokio::spawn(queue_messages(events, message_tx, config.channel_id));
 
     let mut last_response_time = Instant::now();
     let mut last_error_response = None;
@@ -256,37 +220,4 @@ async fn generate_response(
     };
 
     Ok(response_content.to_string())
-}
-
-#[derive(Debug)]
-struct UserMessage {
-    message_id: Id<MessageMarker>,
-    reply_to: Option<Id<MessageMarker>>,
-    content: String,
-    sender_name: String,
-    sender_display_name: Option<String>,
-    sender_id: Id<UserMarker>,
-    sent_at: Timestamp,
-}
-
-impl UserMessage {
-    /// Serialize the message into the format expected by the LLM.
-    fn format_message(&self) -> String {
-        format!(
-            "<msg>message_id: {}\n{}author_name: {}\nauthor_id: {}{}\nsent_at: {}\n{}</msg>",
-            self.message_id,
-            match self.reply_to {
-                Some(id) => format!("repling_to: {id}\n"),
-                None => String::new(),
-            },
-            self.sender_name,
-            match &self.sender_display_name {
-                Some(name) => format!(" ({name})"),
-                None => String::new(),
-            },
-            self.sender_id,
-            self.sent_at.iso_8601(),
-            self.content
-        )
-    }
 }

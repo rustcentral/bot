@@ -2,7 +2,6 @@ mod ai_channel;
 mod config;
 mod error;
 
-use ai_channel::serve_ai_channel;
 use std::{path::Path, sync::Arc};
 use tokio::sync::broadcast;
 use tracing::{info, level_filters::LevelFilter, warn};
@@ -40,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     let (event_tx, event_rx) = broadcast::channel(16);
 
     if let Some(ai_channel_config) = config.ai_channel {
-        tokio::spawn(serve_ai_channel(
+        tokio::spawn(ai_channel::serve(
             ai_channel_config,
             event_rx.resubscribe(),
             http.clone(),
