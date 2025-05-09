@@ -33,8 +33,14 @@ pub struct Configuration {
     model_name: String,
     /// The maximum amount of messages to include as history when generating a response. This does
     /// *not* include the system prompt.
+    ///
+    /// When this limit is reached, the bot will remove messages until it the history has
+    /// `min_history_size` messages.
     #[serde(default = "default_max_history_size")]
     max_history_size: u32,
+    /// The minimum amount of messages that should be kept when downsizing the message history.
+    #[serde(default = "default_min_history_size")]
+    min_history_size: u32,
     /// If set to true, the LLM will also be able to see images sent by users. This requires the LLM
     /// used supports images as input.
     ///
@@ -44,7 +50,11 @@ pub struct Configuration {
 }
 
 fn default_max_history_size() -> u32 {
-    32
+    40
+}
+
+fn default_min_history_size() -> u32 {
+    30
 }
 
 /// Runs the main AI channel logic.
@@ -100,11 +110,18 @@ pub async fn serve(
         }
         new_messages.clear();
 
-        // Downsize the history buffer by removing some elements from the front until it is back to
-        // `max_history_size`. This is to ensure all messages fit in the context window.
-        let remove_from_front = history.len().saturating_sub(max_history_size);
-        // TODO: count history in tokens rather amount of messages.
-        history.drain(0..remove_from_front);
+        if history.len() > max_history_size {
+            // Downsize the history buffer by removing some elements from the front until it is back
+            // to `min_history_size`. This is to ensure all messages fit in the context window while
+            // allowing the LLM cache to be re-used for the next messages.
+            let remove_from_front = history
+                .len()
+                .saturating_sub(config.min_history_size as usize);
+            // TODO: count history in tokens rather amount of messages.
+            history.drain(0..remove_from_front);
+
+            debug!("Downsized history to {}", history.len());
+        }
 
         let messages: Vec<_> = [system_prompt]
             .into_iter()
