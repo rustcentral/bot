@@ -6,10 +6,13 @@ use std::{
 use anyhow::Context;
 use serde::Deserialize;
 
+use crate::ai_channel;
+
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
     /// The bot's discord token.
     pub token: String,
+    pub ai_channel: Option<ai_channel::Configuration>,
 }
 
 impl Configuration {

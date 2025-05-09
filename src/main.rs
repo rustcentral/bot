@@ -1,10 +1,13 @@
+mod ai_channel;
 mod config;
+mod error;
 
 use std::{path::Path, sync::Arc};
-use tracing::{info, instrument, level_filters::LevelFilter};
+use tokio::sync::broadcast;
+use tracing::{info, level_filters::LevelFilter, warn};
 use tracing_subscriber::{EnvFilter, filter::Directive};
 use twilight_cache_inmemory::{DefaultInMemoryCache, ResourceType};
-use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
+use twilight_gateway::{EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_http::Client as HttpClient;
 
 #[tokio::main]
@@ -19,13 +22,31 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::Configuration::read_with_env("CONFIG_PATH", [Path::new("bot.toml")])?;
 
-    let mut shard = Shard::new(ShardId::ONE, config.token.clone(), Intents::all());
+    let mut shard = Shard::new(
+        ShardId::ONE,
+        config.token.clone(),
+        Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT,
+    );
 
     let http = Arc::new(HttpClient::builder().token(config.token).build());
 
     let cache = DefaultInMemoryCache::builder()
         .resource_types(ResourceType::MESSAGE)
         .build();
+
+    // All incoming events are sent through the broadcast channel and each event is handled by every
+    // task that handles events.
+    let (event_tx, event_rx) = broadcast::channel(16);
+
+    if let Some(ai_channel_config) = config.ai_channel {
+        tokio::spawn(ai_channel::serve(
+            ai_channel_config,
+            event_rx.resubscribe(),
+            http.clone(),
+        ));
+    } else {
+        warn!("No AI channel config was set; not enabling AI channel")
+    }
 
     info!("Listening for events");
     while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
@@ -38,16 +59,10 @@ async fn main() -> anyhow::Result<()> {
         // Update the cache with the event.
         cache.update(&event);
 
-        tokio::spawn(handle_event(event, Arc::clone(&http)));
-    }
-
-    Ok(())
-}
-
-#[instrument(skip_all, fields(event = ?event.kind()))]
-async fn handle_event(event: Event, _http: Arc<HttpClient>) -> anyhow::Result<()> {
-    match event {
-        _ => {}
+        // Wrap the event in Arc. Since there will be multiple receivers, this prevents the value
+        // from needing to be deeply cloned for each receiver.
+        let event = Arc::new(event);
+        _ = event_tx.send(event);
     }
 
     Ok(())

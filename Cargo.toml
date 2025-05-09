@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.98"
+async-openai = { version = "0.28.1", features = ["byot"] }
+backoff = { version = "0.4.0", features = ["tokio"] }
 config = { version = "0.15.11", default-features = false, features = ["async", "toml"] }
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.45.0", features = ["full"] }
@@ -13,3 +15,5 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 twilight-cache-inmemory = "0.16.0"
 twilight-gateway = "0.16.0"
 twilight-http = "0.16.0"
+twilight-model = "0.16.0"
+twilight-util = { version = "0.16.0", features = ["builder"] }
