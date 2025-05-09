@@ -4,7 +4,7 @@ mod error;
 
 use std::{path::Path, sync::Arc};
 use tokio::{select, sync::broadcast};
-use tracing::{error, info, level_filters::LevelFilter, warn};
+use tracing::{error, info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, filter::Directive};
 use twilight_cache_inmemory::{DefaultInMemoryCache, InMemoryCache, ResourceType};
 use twilight_gateway::{
@@ -43,14 +43,13 @@ async fn main() -> anyhow::Result<()> {
     // task that handles events.
     let (event_tx, event_rx) = broadcast::channel(16);
 
-    if let Some(ai_channel_config) = config.ai_channel {
+    info!("Serving {} AI channel(s)", config.ai_channels.len());
+    for ai_channel_config in config.ai_channels {
         tokio::spawn(ai_channel::serve(
             ai_channel_config,
             event_rx.resubscribe(),
             http.clone(),
         ));
-    } else {
-        warn!("No AI channel config was set; not enabling AI channel")
     }
 
     info!("Listening for events");
