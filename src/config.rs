@@ -12,7 +12,8 @@ use crate::ai_channel;
 pub struct Configuration {
     /// The bot's discord token.
     pub token: String,
-    pub ai_channel: Option<ai_channel::Configuration>,
+    #[serde(default, rename = "ai_channel")]
+    pub ai_channels: Vec<ai_channel::Configuration>,
 }
 
 impl Configuration {

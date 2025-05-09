@@ -28,7 +28,8 @@ use crate::error::send_error_msg;
 pub struct Configuration {
     channel_id: Id<ChannelMarker>,
     llm_api_key: String,
-    llm_api_base: String,
+    /// The base API endpoint to use. If not set the OpenAI API will be used.
+    llm_api_base: Option<String>,
     model_name: String,
     /// The maximum amount of messages to include as history when generating a response. This does
     /// *not* include the system prompt.
@@ -46,12 +47,11 @@ pub async fn serve(
     events: broadcast::Receiver<Arc<Event>>,
     http: Arc<Client>,
 ) {
-    let llm_client = AIClient::with_config(
-        OpenAIConfig::new()
-            .with_api_base(config.llm_api_base)
-            .with_api_key(config.llm_api_key),
-    )
-    .with_backoff(
+    let mut llm_config = OpenAIConfig::new().with_api_key(config.llm_api_key);
+    if let Some(api_base) = config.llm_api_base {
+        llm_config = llm_config.with_api_base(api_base);
+    }
+    let llm_client = AIClient::with_config(llm_config).with_backoff(
         backoff::ExponentialBackoffBuilder::new()
             .with_max_elapsed_time(Some(Duration::from_secs(5)))
             .build(),
