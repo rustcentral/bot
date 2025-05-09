@@ -111,6 +111,6 @@ async fn await_exit_signal() -> std::io::Result<()> {
     {
         use tokio::signal;
 
-        signal::ctrl_c()
+        signal::ctrl_c().await
     }
 }
