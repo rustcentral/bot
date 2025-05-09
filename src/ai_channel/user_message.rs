@@ -1,5 +1,10 @@
 use std::sync::Arc;
 
+use async_openai::types::{
+    ChatCompletionRequestMessageContentPartImage, ChatCompletionRequestUserMessage,
+    ChatCompletionRequestUserMessageContent, ChatCompletionRequestUserMessageContentPart,
+    ImageDetail, ImageUrl,
+};
 use tokio::sync::{broadcast, mpsc};
 use twilight_gateway::Event;
 use twilight_model::{
@@ -10,6 +15,10 @@ use twilight_model::{
     util::Timestamp,
 };
 
+pub struct MessageConfig {
+    pub image_support: bool,
+}
+
 #[derive(Debug)]
 pub struct UserMessage {
     pub message_id: Id<MessageMarker>,
@@ -19,6 +28,7 @@ pub struct UserMessage {
     pub sender_display_name: Option<String>,
     pub sender_id: Id<UserMarker>,
     pub sent_at: Timestamp,
+    pub images: Vec<String>,
 }
 
 impl UserMessage {
@@ -40,6 +50,38 @@ impl UserMessage {
             self.sent_at.iso_8601(),
             self.content
         )
+    }
+
+    /// Encode the message into the format excpected by the LLM api.
+    pub fn as_chat_completion_message(
+        &self,
+        config: &MessageConfig,
+    ) -> ChatCompletionRequestUserMessage {
+        if !config.image_support {
+            // Not using the content parts ensures maximum compatibility.
+            return self.format_message().into();
+        }
+
+        let mut content = vec![ChatCompletionRequestUserMessageContentPart::Text(
+            self.format_message().into(),
+        )];
+
+        for image in &self.images {
+            content.push(ChatCompletionRequestUserMessageContentPart::ImageUrl(
+                ChatCompletionRequestMessageContentPartImage {
+                    image_url: ImageUrl {
+                        url: image.clone(),
+                        // Images can be very expensive in terms of tokens.
+                        detail: Some(ImageDetail::Low),
+                    },
+                },
+            ));
+        }
+
+        ChatCompletionRequestUserMessage {
+            content: ChatCompletionRequestUserMessageContent::Array(content),
+            ..Default::default()
+        }
     }
 }
 
@@ -75,6 +117,17 @@ pub async fn queue_messages(
                 .map(|m| m.nick.clone())
                 .flatten()
                 .or_else(|| message.author.global_name.clone()),
+            images: message
+                .attachments
+                .iter()
+                .filter_map(|a| {
+                    let extension = a.filename.rsplit('.').next();
+                    match extension {
+                        Some("jpeg" | "jpg" | "png" | "webp") => Some(a.url.clone()),
+                        _ => None,
+                    }
+                })
+                .collect(),
         });
 
         if let Err(mpsc::error::TrySendError::Closed(_)) = res {

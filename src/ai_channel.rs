@@ -20,7 +20,7 @@ use tracing::{debug, error};
 use twilight_gateway::Event;
 use twilight_http::Client;
 use twilight_model::id::{Id, marker::ChannelMarker};
-use user_message::queue_messages;
+use user_message::{MessageConfig, queue_messages};
 
 use crate::error::send_error_msg;
 
@@ -35,6 +35,12 @@ pub struct Configuration {
     /// *not* include the system prompt.
     #[serde(default = "default_max_history_size")]
     max_history_size: u32,
+    /// If set to true, the LLM will also be able to see images sent by users. This requires the LLM
+    /// used supports images as input.
+    ///
+    /// WARNING: this can be expensive.
+    #[serde(default)]
+    image_support: bool,
 }
 
 fn default_max_history_size() -> u32 {
@@ -56,6 +62,10 @@ pub async fn serve(
             .with_max_elapsed_time(Some(Duration::from_secs(5)))
             .build(),
     );
+
+    let msg_config = MessageConfig {
+        image_support: config.image_support,
+    };
 
     let max_history_size = config.max_history_size as usize;
     let (message_tx, mut message_rx) = mpsc::channel(max_history_size / 2);
@@ -88,7 +98,8 @@ pub async fn serve(
         );
 
         for msg in &new_messages {
-            let msg = ChatCompletionRequestMessage::User(msg.format_message().into());
+            let msg =
+                ChatCompletionRequestMessage::User(msg.as_chat_completion_message(&msg_config));
 
             history.push_back(msg);
         }
