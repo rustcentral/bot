@@ -1,6 +1,7 @@
 mod ai_channel;
 mod config;
 mod error;
+mod ocr;
 
 use std::{path::Path, sync::Arc};
 use tokio::{select, sync::broadcast};
@@ -52,6 +53,8 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
+    tokio::spawn(ocr::ocr(config.ocr, event_rx.resubscribe(), http.clone()));
+
     info!("Listening for events");
     select! {
         _ = handle_events(shard, cache, event_tx) => {},
@@ -61,6 +64,7 @@ async fn main() -> anyhow::Result<()> {
             }
         },
     }
+
     _ = shard_sender.close(CloseFrame::NORMAL);
     Ok(())
 }
@@ -111,6 +115,6 @@ async fn await_exit_signal() -> std::io::Result<()> {
     {
         use tokio::signal;
 
-        signal::ctrl_c()
+        signal::ctrl_c().await
     }
 }

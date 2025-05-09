@@ -7,6 +7,7 @@ use anyhow::Context;
 use serde::Deserialize;
 
 use crate::ai_channel;
+use crate::ocr;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
@@ -14,6 +15,7 @@ pub struct Configuration {
     pub token: String,
     #[serde(default, rename = "ai_channel")]
     pub ai_channels: Vec<ai_channel::Configuration>,
+    pub ocr: ocr::Configuration,
 }
 
 impl Configuration {
