@@ -20,7 +20,7 @@ use tracing::{debug, error};
 use twilight_gateway::Event;
 use twilight_http::Client;
 use twilight_model::id::{Id, marker::ChannelMarker};
-use user_message::{MessageConfig, queue_messages};
+use user_message::queue_messages;
 
 use crate::error::send_error_msg;
 
@@ -53,8 +53,8 @@ pub async fn serve(
     events: broadcast::Receiver<Arc<Event>>,
     http: Arc<Client>,
 ) {
-    let mut llm_config = OpenAIConfig::new().with_api_key(config.llm_api_key);
-    if let Some(api_base) = config.llm_api_base {
+    let mut llm_config = OpenAIConfig::new().with_api_key(&config.llm_api_key);
+    if let Some(api_base) = &config.llm_api_base {
         llm_config = llm_config.with_api_base(api_base);
     }
     let llm_client = AIClient::with_config(llm_config).with_backoff(
@@ -62,10 +62,6 @@ pub async fn serve(
             .with_max_elapsed_time(Some(Duration::from_secs(5)))
             .build(),
     );
-
-    let msg_config = MessageConfig {
-        image_support: config.image_support,
-    };
 
     let max_history_size = config.max_history_size as usize;
     let (message_tx, mut message_rx) = mpsc::channel(max_history_size / 2);
@@ -98,8 +94,7 @@ pub async fn serve(
         );
 
         for msg in &new_messages {
-            let msg =
-                ChatCompletionRequestMessage::User(msg.as_chat_completion_message(&msg_config));
+            let msg = ChatCompletionRequestMessage::User(msg.as_chat_completion_message(&config));
 
             history.push_back(msg);
         }

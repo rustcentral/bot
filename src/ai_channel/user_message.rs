@@ -15,10 +15,6 @@ use twilight_model::{
     util::Timestamp,
 };
 
-pub struct MessageConfig {
-    pub image_support: bool,
-}
-
 #[derive(Debug)]
 pub struct UserMessage {
     pub message_id: Id<MessageMarker>,
@@ -55,7 +51,7 @@ impl UserMessage {
     /// Encode the message into the format excpected by the LLM api.
     pub fn as_chat_completion_message(
         &self,
-        config: &MessageConfig,
+        config: &super::Configuration,
     ) -> ChatCompletionRequestUserMessage {
         if !config.image_support {
             // Not using the content parts ensures maximum compatibility.
