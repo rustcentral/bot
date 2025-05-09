@@ -35,6 +35,12 @@ pub struct Configuration {
     /// *not* include the system prompt.
     #[serde(default = "default_max_history_size")]
     max_history_size: u32,
+    /// If set to true, the LLM will also be able to see images sent by users. This requires the LLM
+    /// used supports images as input.
+    ///
+    /// WARNING: this can be expensive.
+    #[serde(default)]
+    image_support: bool,
 }
 
 fn default_max_history_size() -> u32 {
@@ -47,8 +53,8 @@ pub async fn serve(
     events: broadcast::Receiver<Arc<Event>>,
     http: Arc<Client>,
 ) {
-    let mut llm_config = OpenAIConfig::new().with_api_key(config.llm_api_key);
-    if let Some(api_base) = config.llm_api_base {
+    let mut llm_config = OpenAIConfig::new().with_api_key(&config.llm_api_key);
+    if let Some(api_base) = &config.llm_api_base {
         llm_config = llm_config.with_api_base(api_base);
     }
     let llm_client = AIClient::with_config(llm_config).with_backoff(
@@ -88,7 +94,7 @@ pub async fn serve(
         );
 
         for msg in &new_messages {
-            let msg = ChatCompletionRequestMessage::User(msg.format_message().into());
+            let msg = ChatCompletionRequestMessage::User(msg.as_chat_completion_message(&config));
 
             history.push_back(msg);
         }
