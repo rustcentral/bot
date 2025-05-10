@@ -1,11 +1,14 @@
-use std::sync::Arc;
+use std::{io::Cursor, sync::Arc};
 
 use async_openai::types::{
     ChatCompletionRequestMessageContentPartImage, ChatCompletionRequestUserMessage,
     ChatCompletionRequestUserMessageContent, ChatCompletionRequestUserMessageContentPart,
     ImageDetail, ImageUrl,
 };
+use base64::{Engine, prelude::BASE64_STANDARD};
+use image::{GenericImageView, ImageFormat, ImageReader, imageops::FilterType};
 use tokio::sync::{broadcast, mpsc};
+use tracing::error;
 use twilight_gateway::Event;
 use twilight_model::{
     id::{
@@ -49,7 +52,7 @@ impl UserMessage {
     }
 
     /// Encode the message into the format excpected by the LLM api.
-    pub fn as_chat_completion_message(
+    pub async fn as_chat_completion_message(
         &self,
         config: &super::Configuration,
     ) -> ChatCompletionRequestUserMessage {
@@ -63,10 +66,21 @@ impl UserMessage {
         )];
 
         for image in &self.images {
+            let image_b64 = match b64_encode_image(image, config.max_image_size).await {
+                Ok(v) => v,
+                Err(err) => {
+                    // Don't propagate the error up: there are a lot of reasons why encoding the
+                    // image could go wrong, for example when the users povides an invalid image. It
+                    // seems better to let the chat continue without errors in this case.
+                    error!("Failed to encode image: {err:?}");
+                    continue;
+                }
+            };
+
             content.push(ChatCompletionRequestUserMessageContentPart::ImageUrl(
                 ChatCompletionRequestMessageContentPartImage {
                     image_url: ImageUrl {
-                        url: image.clone(),
+                        url: format!("data:image/jpeg;base64,{image_b64}"),
                         // Images can be very expensive in terms of tokens.
                         detail: Some(ImageDetail::Low),
                     },
@@ -130,4 +144,23 @@ pub async fn queue_messages(
             return;
         }
     }
+}
+
+async fn b64_encode_image(image_url: &str, max_dim: u32) -> anyhow::Result<String> {
+    let image_bytes = reqwest::get(image_url).await?.bytes().await?;
+    let img = ImageReader::new(Cursor::new(image_bytes))
+        .with_guessed_format()?
+        .decode()?;
+
+    // Make the image smaller while preserving the aspect ratio to save on tokens.
+    let img = if img.dimensions().0 > max_dim || img.dimensions().1 > max_dim {
+        img.resize(max_dim, max_dim, FilterType::Triangle)
+    } else {
+        img
+    };
+
+    let mut img_bytes = Vec::new();
+    img.write_to(&mut Cursor::new(&mut img_bytes), ImageFormat::Jpeg)?;
+
+    Ok(BASE64_STANDARD.encode(img_bytes))
 }
