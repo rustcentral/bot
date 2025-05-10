@@ -1,0 +1,45 @@
+name: Check Conventional Commits
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  conventional-commits:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get PR commits
+        id: commits
+        run: |
+          curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits" \
+            > commits.json
+
+      - name: Check commit messages
+        run: |
+          pattern='^(feat|fix|chore|docs|style|refactor|perf|test|ci)(\([a-zA-Z0-9_-]+\))?: .+'
+
+          error=0
+
+          commit_messages=$(jq -r '.[].commit.message' commits.json)
+          for msg in "$commit_messages"; do
+            echo "Checking: $msg"
+            if ! echo "$msg" | grep -Eq "$pattern"; then
+              echo "❌ Commit does not follow Conventional Commits format:"
+              echo "    $msg"
+              error=1
+            fi
+          done
+
+          if [ "$error" -ne 0 ]; then
+            echo "One or more commits are not conventional."
+            exit 1
+          fi
