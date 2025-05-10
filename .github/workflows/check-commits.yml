@@ -25,11 +25,12 @@ jobs:
 
       - name: Check commit messages
         run: |
-          pattern='^(feat|fix|chore|docs|style|refactor|perf|test)(\([a-zA-Z0-9_-]+\))?: .+'
+          pattern='^(feat|fix|chore|docs|style|refactor|perf|test|ci)(\([a-zA-Z0-9_-]+\))?: .+'
 
           error=0
 
-          for msg in $(jq -r '.[].commit.message' commits.json); do
+          commit_messages=$(jq -r '.[].commit.message' commits.json)
+          for msg in "$commit_messages"; do
             echo "Checking: $msg"
             if ! echo "$msg" | grep -Eq "$pattern"; then
               echo "❌ Commit does not follow Conventional Commits format:"
