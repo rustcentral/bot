@@ -2,9 +2,9 @@ name: Check Conventional Commits
 
 on:
   push:
-    branches: ["main", "17-setup-ci"]
+    branches: ["main"]
   pull_request:
-    branches: ["main", "17-setup-ci"]
+    branches: ["main"]
 
 jobs:
   conventional-commits:
