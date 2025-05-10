@@ -47,6 +47,11 @@ pub struct Configuration {
     /// WARNING: this can be expensive.
     #[serde(default)]
     image_support: bool,
+    /// The maximum size images are allowed to be before sent to the API.
+    ///
+    /// Images that have one or both dimensions bigger than this value will be downsized.
+    #[serde(default = "default_max_image_size")]
+    max_image_size: u32,
 }
 
 fn default_max_history_size() -> u32 {
@@ -55,6 +60,10 @@ fn default_max_history_size() -> u32 {
 
 fn default_min_history_size() -> u32 {
     30
+}
+
+fn default_max_image_size() -> u32 {
+    800
 }
 
 /// Runs the main AI channel logic.
@@ -104,7 +113,8 @@ pub async fn serve(
         );
 
         for msg in &new_messages {
-            let msg = ChatCompletionRequestMessage::User(msg.as_chat_completion_message(&config));
+            let msg =
+                ChatCompletionRequestMessage::User(msg.as_chat_completion_message(&config).await);
 
             history.push_back(msg);
         }
