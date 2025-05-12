@@ -228,6 +228,7 @@ dependencies = [
  "base64",
  "config",
  "image",
+ "regex",
  "reqwest",
  "serde",
  "tokio",

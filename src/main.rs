@@ -1,10 +1,12 @@
 mod ai_channel;
+mod anti_hoisting;
 mod config;
 mod error;
 
 use std::{path::Path, sync::Arc};
+use anti_hoisting::AntiHoisting;
 use tokio::{select, sync::broadcast};
-use tracing::{error, info, level_filters::LevelFilter};
+use tracing::{error, info, level_filters::LevelFilter, warn};
 use tracing_subscriber::{EnvFilter, filter::Directive};
 use twilight_cache_inmemory::{DefaultInMemoryCache, InMemoryCache, ResourceType};
 use twilight_gateway::{
@@ -27,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
     let shard = Shard::new(
         ShardId::ONE,
         config.token.clone(),
-        Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT,
+        Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT | AntiHoisting::INTENTS,
     );
     let shard_sender = shard.sender();
 
@@ -50,6 +52,18 @@ async fn main() -> anyhow::Result<()> {
             event_rx.resubscribe(),
             http.clone(),
         ));
+    }
+
+    match config.anti_hoisting {
+        Some(anti_hoisting_config) if anti_hoisting_config.enabled => {
+            tokio::spawn(AntiHoisting::serve(
+                anti_hoisting_config,
+                event_rx.resubscribe(),
+                http.clone(),
+            ));
+        }
+        Some(_) => warn!("Anti-hoisting is disabled in the config; not enabling anti-hoisting"),
+        None => warn!("No anti-hoisting config was set; not enabling anti-hoisting"),
     }
 
     info!("Listening for events");
