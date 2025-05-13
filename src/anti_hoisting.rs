@@ -112,7 +112,13 @@ impl AntiHoisting {
             let hoisted_member = match event.as_deref() {
                 Err(RecvError::Closed) => return,
                 Err(_) => continue,
-                Ok(Event::MemberUpdate(m)) if m.nick.as_ref().map_or(false, |nick| AntiHoisting::is_hoisted(&config.trigger, &nick))  => m,
+                Ok(Event::MemberUpdate(m))
+                    if m.nick
+                        .as_ref()
+                        .is_some_and(|nick| AntiHoisting::is_hoisted(&config.trigger, nick)) =>
+                {
+                    m
+                }
                 Ok(_) => continue,
             };
 
@@ -128,29 +134,27 @@ impl AntiHoisting {
                 );
                 continue;
             };
-            
-            // Only nicknames are supported
-            let Some(ref old_nickname) = hoisted_member.nick else {
-                continue;
+
+            // If user has no nickname, use username
+            let old_nickname = match &hoisted_member.nick {
+                Some(name) => name,
+                None => &hoisted_member.user.name,
             };
 
-            let new_nickname = AntiHoisting::transform(&old_nickname, &config.output);
+            let new_nickname = AntiHoisting::transform(old_nickname, &config.output);
 
             // the output can produce a nickname longer than max_nickname_length
             // for now the strategy is to not change the nickname
-            if new_nickname.len() > config.max_nickname_length as usize {
-                continue;
-            }
 
-            let result = Self::change_nickname(&hoisted_member, &new_nickname, &http).await;
+            let result = Self::change_nickname(hoisted_member, &new_nickname, &http).await;
 
-            let member= match result {
+            let member = match result {
                 Err(err) => {
                     // permission errors
                     debug!(error = %err, "Failed to change nickname");
                     continue;
                 },
-                Ok(m) if m.nick.as_ref().map_or(false, |nick| *nick == new_nickname) => m,
+                Ok(m) if m.nick.as_ref().is_some_and(|nick| *nick == new_nickname) => m,
                 Ok(_) => continue,
             };
 
@@ -162,19 +166,24 @@ impl AntiHoisting {
         }
     }
 
-    async fn change_nickname(hoisted_member: &Box<MemberUpdate>, new_nickname: &str, http: &Arc<Client>) -> anyhow::Result<Member> {
+    async fn change_nickname(
+        hoisted_member: &MemberUpdate,
+        new_nickname: &str,
+        http: &Arc<Client>,
+    ) -> anyhow::Result<Member> {
         Ok(http
             .update_guild_member(hoisted_member.guild_id, hoisted_member.user.id)
-            .nick(Some(&new_nickname))
-            .await?.model().await?)
-    }   
+            .nick(Some(new_nickname))
+            .await?
+            .model()
+            .await?)
+    }
 
     fn is_hoisted(trigger: &Regex, nickname: &str) -> bool {
         trigger.is_match(nickname)
     }
 
     fn transform(old_nickname: &str, output: &str) -> String {
-        output.replace(Self::NICKNAME_PLACEHOLDER,old_nickname)
+        output.replace(Self::NICKNAME_PLACEHOLDER, old_nickname)
     }
 }
-
