@@ -117,14 +117,20 @@ impl AntiHoisting {
             };
 
             // skip member with a role that bypasses anti-hoisting
-            if hoisted_member.roles.iter().any(|role| config.ignore_roles.contains(role)) {
-                debug!("Member {:#?} has a role that bypasses anti-hoisting, skipping", hoisted_member.user.name);
+            if hoisted_member
+                .roles
+                .iter()
+                .any(|role| config.ignore_roles.contains(role))
+            {
+                debug!(
+                    name = %hoisted_member.user.name,
+                    "Member has a role that bypasses anti-hoisting, skipping",
+                );
                 continue;
             };
             
             // Only nicknames are supported
             let Some(ref old_nickname) = hoisted_member.nick else {
-                debug!("Member {:#?} has not changed a nickname, skipping", hoisted_member.user.name);
                 continue;
             };
 
@@ -141,14 +147,18 @@ impl AntiHoisting {
             let member= match result {
                 Err(err) => {
                     // permission errors
-                    warn!("Failed to change nickname: {err}");
+                    debug!(error = %err, "Failed to change nickname");
                     continue;
                 },
                 Ok(m) if m.nick.as_ref().map_or(false, |nick| *nick == new_nickname) => m,
                 Ok(_) => continue,
             };
 
-            info!("Member has tried to hoist with name: {:#?} set new nickname to: {:#?}", hoisted_member.nick, &new_nickname);
+            debug!(
+                old_name = %hoisted_member.user.name,
+                new_name = %&new_nickname,
+                "Member has tried to hoist",
+            );
         }
     }
 
