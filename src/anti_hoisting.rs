@@ -11,15 +11,6 @@ use twilight_model::{
     id::{Id, marker::RoleMarker},
 };
 
-// https://discord.com/developers/docs/resources/user
-fn default_max_nickname_length() -> u32 {
-    32
-}
-
-fn default_min_nickname_length() -> u32 {
-    1
-}
-
 use serde::de::{Deserialize, Deserializer, Error};
 fn deserialize_regex<'de, D>(deserializer: D) -> Result<Regex, D::Error>
 where
@@ -31,14 +22,6 @@ where
 
 #[derive(Debug)]
 pub struct Configuration {
-    /// The maximum length of a nickname
-    /// defaults to 32
-    /// ONLY CHANGE THIS IF YOU KNOW WHAT YOU ARE DOING
-    pub max_nickname_length: u32,
-    /// The minimum length of a nickname
-    /// defaults to 1
-    /// ONLY CHANGE THIS IF YOU KNOW WHAT YOU ARE DOING
-    pub min_nickname_length: u32,
     /// Name format that triggers anti-hoisting
     /// e.g. ^[A-Za-z]{2,}
     pub trigger: Regex, // TODO only single letters are allowed
@@ -55,31 +38,25 @@ pub struct Configuration {
 impl<'de> Deserialize<'de> for Configuration {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de> {
-
+        D: Deserializer<'de>,
+    {
         #[derive(serde::Deserialize)]
         struct RawConfiguration {
-            #[serde(default = "default_max_nickname_length")]
-            max_nickname_length: u32,
-            #[serde(default = "default_min_nickname_length")]
-            min_nickname_length: u32,
             #[serde(deserialize_with = "deserialize_regex")]
             trigger: Regex,
             output: String,
             #[serde(default)]
-            ignore_roles: Vec<Id<RoleMarker>>
+            ignore_roles: Vec<Id<RoleMarker>>,
         }
 
         let RawConfiguration {
-            max_nickname_length,
-            min_nickname_length,
             trigger,
             output,
-            ignore_roles
+            ignore_roles,
         } = RawConfiguration::deserialize(deserializer)?;
 
         let output = output.trim();
-        
+
         // invalid if output does not contain ${nickname}
         if !output.contains(AntiHoisting::NICKNAME_PLACEHOLDER) {
             return Err(Error::custom("`output` must contain `${nickname}`"));
@@ -88,8 +65,6 @@ impl<'de> Deserialize<'de> for Configuration {
         //TODO validation
 
         Ok(Configuration {
-            max_nickname_length,
-            min_nickname_length,
             trigger,
             output: output.to_owned(),
             ignore_roles,
