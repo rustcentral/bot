@@ -2,10 +2,14 @@ use std::sync::Arc;
 
 use regex::Regex;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
-use tracing::{debug, info, warn};
+use tracing::debug;
 use twilight_gateway::Event;
 use twilight_http::Client;
-use twilight_model::{gateway::{payload::incoming::MemberUpdate, Intents}, guild::Member, id::{marker::RoleMarker, Id}};
+use twilight_model::{
+    gateway::{Intents, payload::incoming::MemberUpdate},
+    guild::Member,
+    id::{Id, marker::RoleMarker},
+};
 
 // https://discord.com/developers/docs/resources/user
 fn default_max_nickname_length() -> u32 {
@@ -27,8 +31,6 @@ where
 
 #[derive(Debug)]
 pub struct Configuration {
-    /// Whether anti-hoisting is enabled
-    pub enabled: bool,
     /// The maximum length of a nickname
     /// defaults to 32
     /// ONLY CHANGE THIS IF YOU KNOW WHAT YOU ARE DOING
@@ -57,8 +59,6 @@ impl<'de> Deserialize<'de> for Configuration {
 
         #[derive(serde::Deserialize)]
         struct RawConfiguration {
-            #[serde(default)]
-            enabled: bool,
             #[serde(default = "default_max_nickname_length")]
             max_nickname_length: u32,
             #[serde(default = "default_min_nickname_length")]
@@ -71,7 +71,6 @@ impl<'de> Deserialize<'de> for Configuration {
         }
 
         let RawConfiguration {
-            enabled,
             max_nickname_length,
             min_nickname_length,
             trigger,
@@ -89,7 +88,6 @@ impl<'de> Deserialize<'de> for Configuration {
         //TODO validation
 
         Ok(Configuration {
-            enabled,
             max_nickname_length,
             min_nickname_length,
             trigger,

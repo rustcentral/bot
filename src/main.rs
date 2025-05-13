@@ -6,7 +6,7 @@ mod error;
 use std::{path::Path, sync::Arc};
 use anti_hoisting::AntiHoisting;
 use tokio::{select, sync::broadcast};
-use tracing::{error, info, level_filters::LevelFilter, warn};
+use tracing::{error, info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, filter::Directive};
 use twilight_cache_inmemory::{DefaultInMemoryCache, InMemoryCache, ResourceType};
 use twilight_gateway::{
@@ -54,16 +54,12 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
-    match config.anti_hoisting {
-        Some(anti_hoisting_config) if anti_hoisting_config.enabled => {
-            tokio::spawn(AntiHoisting::serve(
-                anti_hoisting_config,
-                event_rx.resubscribe(),
-                http.clone(),
-            ));
-        }
-        Some(_) => warn!("Anti-hoisting is disabled in the config; not enabling anti-hoisting"),
-        None => warn!("No anti-hoisting config was set; not enabling anti-hoisting"),
+    if let Some(anti_hoisting_config) = config.anti_hoisting {
+        tokio::spawn(AntiHoisting::serve(
+            anti_hoisting_config,
+            event_rx.resubscribe(),
+            http.clone(),
+        ));
     }
 
     info!("Listening for events");
