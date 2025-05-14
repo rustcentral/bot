@@ -22,3 +22,4 @@ twilight-gateway = "0.16.0"
 twilight-http = "0.16.0"
 twilight-model = "0.16.0"
 twilight-util = { version = "0.16.0", features = ["builder"] }
+twilight-validate = "0.16.0"

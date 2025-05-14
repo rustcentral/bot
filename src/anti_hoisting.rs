@@ -4,7 +4,7 @@ use serde::{
     de::{self, Deserializer, Error},
 };
 
-use std::{collections::HashMap, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::debug;
 use twilight_gateway::Event;
@@ -116,6 +116,7 @@ impl AntiHoisting {
                 continue;
             }
 
+            let new_nickname = AntiHoisting::truncate_nickname(&new_nickname,twilight_validate::request::NICKNAME_LIMIT_MAX);
 
             let result = Self::change_nickname(hoisted_member, &new_nickname, &http).await;
 
@@ -154,5 +155,20 @@ impl AntiHoisting {
     /// Defines what is considered a hoisted name
     fn is_hoisted(trigger: &Regex, nickname: &str) -> bool {
         trigger.is_match(nickname)
+    }
+
+    /// Truncates a nickname to a specified length
+    pub fn truncate_nickname(nickname: &str, limit: usize) -> Cow<'_, str> {
+        let cutoff = nickname
+            .char_indices()
+            .nth(limit)
+            .map(|(idx, _)| idx)
+            .unwrap_or_else(|| nickname.len());
+
+        if cutoff == nickname.len() {
+            Cow::Borrowed(nickname)
+        } else {
+            Cow::Owned(nickname[..cutoff].to_string())
+        }
     }
 }
