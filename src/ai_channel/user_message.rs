@@ -116,7 +116,7 @@ pub async fn queue_messages(
 
         let res = queue.try_send(UserMessage {
             message_id: message.id,
-            reply_to: message.reference.as_ref().map(|r| r.message_id).flatten(),
+            reply_to: message.reference.as_ref().and_then(|r| r.message_id),
             content: message.content.clone(),
             sender_name: message.author.name.clone(),
             sender_id: message.author.id,
@@ -124,8 +124,7 @@ pub async fn queue_messages(
             sender_display_name: message
                 .member
                 .as_ref()
-                .map(|m| m.nick.clone())
-                .flatten()
+                .and_then(|m| m.nick.clone())
                 .or_else(|| message.author.global_name.clone()),
             images: message
                 .attachments
