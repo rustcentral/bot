@@ -6,7 +6,7 @@ use serde::{
 
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use tokio::sync::broadcast::{Receiver, error::RecvError};
-use tracing::debug;
+use tracing::{debug, warn};
 use twilight_gateway::Event;
 use twilight_http::Client;
 use twilight_model::{
@@ -116,14 +116,17 @@ impl AntiHoisting {
                 continue;
             }
 
-            let new_nickname = AntiHoisting::truncate_nickname(&new_nickname,twilight_validate::request::NICKNAME_LIMIT_MAX);
+            let new_nickname = AntiHoisting::truncate_nickname(
+                &new_nickname,
+                twilight_validate::request::NICKNAME_LIMIT_MAX,
+            );
 
             let result = Self::change_nickname(hoisted_member, &new_nickname, &http).await;
 
             match result {
                 Err(err) => {
                     // permission errors
-                    debug!(error = %err, "Failed to change nickname");
+                    warn!(error = %err, id = %hoisted_member.user.id, "Failed to change nickname");
                     continue;
                 }
                 Ok(m) if m.nick.as_ref().is_some_and(|nick| *nick == new_nickname) => {
