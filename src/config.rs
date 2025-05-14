@@ -48,7 +48,7 @@ impl Configuration {
             Ok(paths) => {
                 let paths = paths
                     .split(',')
-                    .map(|p| PathBuf::from(p))
+                    .map(PathBuf::from)
                     .collect::<Vec<_>>();
                 Self::read(paths.iter().map(|p| p.as_path()))
             }

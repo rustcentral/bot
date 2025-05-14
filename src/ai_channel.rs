@@ -135,7 +135,7 @@ pub async fn serve(
 
         let messages: Vec<_> = [system_prompt]
             .into_iter()
-            .chain(history.iter().map(|i| i.clone()))
+            .chain(history.iter().cloned())
             .collect();
 
         let response = generate_response(&llm_client, &config.model_name, messages).await;

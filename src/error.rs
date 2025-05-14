@@ -33,10 +33,10 @@ pub async fn send_error_msg(
     };
 
     match res.model().await {
-        Ok(res) => return Some(res),
+        Ok(res) => Some(res),
         Err(err) => {
             error!("Failed to deserialize message creation response: {err}");
-            return None;
+            None
         }
-    };
+    }
 }
