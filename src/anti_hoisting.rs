@@ -3,7 +3,8 @@ use serde::{
     Deserialize,
     de::{self, Deserializer, Error},
 };
-use std::sync::Arc;
+
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::debug;
 use twilight_gateway::Event;
@@ -25,18 +26,27 @@ where
 #[derive(Debug, Deserialize)]
 #[serde(tag = "strategy", rename_all = "lowercase")]
 pub enum ChangeNameUsing {
+    // Special characters will be transformed to ascii or removed
+    // A character mapping can be provided which is applied after deunicode has run
+    Deunicode {
+        #[serde(default)]
+        mapping: HashMap<char, char>,
+    },
     // A fixed name will be assigned to the user
     // To set this name specify the new_name property
-    Fixed { new_name: String },
+    Fixed {
+        new_name: String,
+    },
 }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Configuration {
     /// Name format that triggers anti-hoisting
     /// e.g. `^[A-Za-z]{2,}`
+    /// Be aware that regex matching the resulting nickname, may create unnecessary triggers
     #[serde(deserialize_with = "deserialize_regex")]
     pub trigger: Regex,
-    // How the renaming is handled
+    // Specifies how the renaming is handled
     pub change_name_using: ChangeNameUsing,
     /// Roles that are able to bypass anti-hoisting'
     #[serde(default)]
@@ -88,18 +98,24 @@ impl AntiHoisting {
 
             // how is the name transformed
             let new_nickname = match config.change_name_using {
+                ChangeNameUsing::Deunicode { ref mapping } => deunicode::deunicode(old_nickname)
+                    .chars()
+                    .map(|c| mapping.get(&c).copied().unwrap_or(c))
+                    .collect::<String>(),
                 ChangeNameUsing::Fixed { ref new_name } => new_name.to_string(),
             };
-            
+
             // makes sure the new name is different than the old name
-            // prevents false-triggers 
+            // prevents false-triggers
             if *old_nickname == new_nickname {
                 debug!(
                     name = %new_nickname,
+                    help = "try adding the special character or trigger regex",
                     "New name is equal to old name"
                 );
                 continue;
             }
+
 
             let result = Self::change_nickname(hoisted_member, &new_nickname, &http).await;
 
@@ -109,18 +125,19 @@ impl AntiHoisting {
                     debug!(error = %err, "Failed to change nickname");
                     continue;
                 }
-                Ok(m) if m.nick.as_ref().is_some_and(|nick| *nick == new_nickname) => m,
+                Ok(m) if m.nick.as_ref().is_some_and(|nick| *nick == new_nickname) => {
+                    debug!(
+                        old_name = %old_nickname,
+                        new_name = %&new_nickname,
+                        "Member has tried to hoist",
+                    );
+                }
                 Ok(_) => continue,
             };
-
-            debug!(
-                old_name = %hoisted_member.user.name,
-                new_name = %&new_nickname,
-                "Member has tried to hoist",
-            );
         }
     }
 
+    /// changes the nickname of a user to a new one
     async fn change_nickname(
         hoisted_member: &MemberUpdate,
         new_nickname: &str,
@@ -134,6 +151,7 @@ impl AntiHoisting {
             .await?)
     }
 
+    /// Defines what is considered a hoisted name
     fn is_hoisted(trigger: &Regex, nickname: &str) -> bool {
         trigger.is_match(nickname)
     }
