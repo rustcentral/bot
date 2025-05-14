@@ -1,6 +1,9 @@
-use std::sync::Arc;
-
 use regex::Regex;
+use serde::{
+    Deserialize,
+    de::{self, Deserializer, Error},
+};
+use std::sync::Arc;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::debug;
 use twilight_gateway::Event;
@@ -11,72 +14,39 @@ use twilight_model::{
     id::{Id, marker::RoleMarker},
 };
 
-use serde::de::{Deserialize, Deserializer, Error};
 fn deserialize_regex<'de, D>(deserializer: D) -> Result<Regex, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s: String = Deserialize::deserialize(deserializer)?;
+    let s: String = de::Deserialize::deserialize(deserializer)?;
     Regex::new(&s).map_err(Error::custom)
 }
 
-#[derive(Debug)]
-pub struct Configuration {
-    /// Name format that triggers anti-hoisting
-    /// e.g. ^[A-Za-z]{2,}
-    pub trigger: Regex, // TODO only single letters are allowed
-    /// The output message to send to the user
-    /// Must contain the literal `${nickname}`
-    /// Example: `Box<${nickname}>`
-    pub output: String,
-    /// Roles that are able to bypass anti-hoisting
-    pub ignore_roles: Vec<Id<RoleMarker>>
+#[derive(Debug, Deserialize)]
+#[serde(tag = "strategy", rename_all = "lowercase")]
+pub enum ChangeNameUsing {
+    // A fixed name will be assigned to the user
+    // To set this name specify the new_name property
+    Fixed { new_name: String },
 }
 
-/// Deserialize Configuration
-/// This is needed to provide config error handling at the time of deserialization
-impl<'de> Deserialize<'de> for Configuration {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(serde::Deserialize)]
-        struct RawConfiguration {
-            #[serde(deserialize_with = "deserialize_regex")]
-            trigger: Regex,
-            output: String,
-            #[serde(default)]
-            ignore_roles: Vec<Id<RoleMarker>>,
-        }
-
-        let RawConfiguration {
-            trigger,
-            output,
-            ignore_roles,
-        } = RawConfiguration::deserialize(deserializer)?;
-
-        let output = output.trim();
-
-        // invalid if output does not contain ${nickname}
-        if !output.contains(AntiHoisting::NICKNAME_PLACEHOLDER) {
-            return Err(Error::custom("`output` must contain `${nickname}`"));
-        };
-
-        //TODO validation
-
-        Ok(Configuration {
-            trigger,
-            output: output.to_owned(),
-            ignore_roles,
-        })
-    }
+#[derive(Debug, serde::Deserialize)]
+pub struct Configuration {
+    /// Name format that triggers anti-hoisting
+    /// e.g. `^[A-Za-z]{2,}`
+    #[serde(deserialize_with = "deserialize_regex")]
+    pub trigger: Regex,
+    // How the renaming is handled
+    pub change_name_using: ChangeNameUsing,
+    /// Roles that are able to bypass anti-hoisting'
+    #[serde(default)]
+    pub ignore_roles: Vec<Id<RoleMarker>>,
 }
 
 pub struct AntiHoisting {}
 
 impl AntiHoisting {
     pub const INTENTS: Intents = Intents::GUILD_MEMBERS;
-    pub const NICKNAME_PLACEHOLDER: &str = "${nickname}";
 
     /// run the main anti-hoisting logic
     pub async fn serve(config: Configuration, mut events: Receiver<Arc<Event>>, http: Arc<Client>) {
@@ -116,19 +86,29 @@ impl AntiHoisting {
                 None => &hoisted_member.user.name,
             };
 
-            let new_nickname = AntiHoisting::transform(old_nickname, &config.output);
-
-            // the output can produce a nickname longer than max_nickname_length
-            // for now the strategy is to not change the nickname
+            // how is the name transformed
+            let new_nickname = match config.change_name_using {
+                ChangeNameUsing::Fixed { ref new_name } => new_name.to_string(),
+            };
+            
+            // makes sure the new name is different than the old name
+            // prevents false-triggers 
+            if *old_nickname == new_nickname {
+                debug!(
+                    name = %new_nickname,
+                    "New name is equal to old name"
+                );
+                continue;
+            }
 
             let result = Self::change_nickname(hoisted_member, &new_nickname, &http).await;
 
-            let member = match result {
+            match result {
                 Err(err) => {
                     // permission errors
                     debug!(error = %err, "Failed to change nickname");
                     continue;
-                },
+                }
                 Ok(m) if m.nick.as_ref().is_some_and(|nick| *nick == new_nickname) => m,
                 Ok(_) => continue,
             };
@@ -156,9 +136,5 @@ impl AntiHoisting {
 
     fn is_hoisted(trigger: &Regex, nickname: &str) -> bool {
         trigger.is_match(nickname)
-    }
-
-    fn transform(old_nickname: &str, output: &str) -> String {
-        output.replace(Self::NICKNAME_PLACEHOLDER, old_nickname)
     }
 }
