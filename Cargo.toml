@@ -9,7 +9,9 @@ async-openai = { version = "0.28.1", features = ["byot"] }
 backoff = { version = "0.4.0", features = ["tokio"] }
 base64 = "0.22.1"
 config = { version = "0.15.11", default-features = false, features = ["async", "toml"] }
+deunicode = "1.6.2"
 image = "0.25.6"
+regex = "1.11.1"
 reqwest = "0.12.15"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.45.0", features = ["full"] }
@@ -20,3 +22,4 @@ twilight-gateway = "0.16.0"
 twilight-http = "0.16.0"
 twilight-model = "0.16.0"
 twilight-util = { version = "0.16.0", features = ["builder"] }
+twilight-validate = "0.16.0"

@@ -1,8 +1,10 @@
 mod ai_channel;
+mod anti_hoisting;
 mod config;
 mod error;
 
 use std::{path::Path, sync::Arc};
+use anti_hoisting::AntiHoisting;
 use tokio::{select, sync::broadcast};
 use tracing::{error, info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, filter::Directive};
@@ -27,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
     let shard = Shard::new(
         ShardId::ONE,
         config.token.clone(),
-        Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT,
+        Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT | AntiHoisting::INTENTS,
     );
     let shard_sender = shard.sender();
 
@@ -47,6 +49,14 @@ async fn main() -> anyhow::Result<()> {
     for ai_channel_config in config.ai_channels {
         tokio::spawn(ai_channel::serve(
             ai_channel_config,
+            event_rx.resubscribe(),
+            http.clone(),
+        ));
+    }
+
+    if let Some(anti_hoisting_config) = config.anti_hoisting {
+        tokio::spawn(AntiHoisting::serve(
+            anti_hoisting_config,
             event_rx.resubscribe(),
             http.clone(),
         ));

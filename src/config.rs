@@ -7,6 +7,7 @@ use anyhow::Context;
 use serde::Deserialize;
 
 use crate::ai_channel;
+use crate::anti_hoisting;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
@@ -14,6 +15,8 @@ pub struct Configuration {
     pub token: String,
     #[serde(default, rename = "ai_channel")]
     pub ai_channels: Vec<ai_channel::Configuration>,
+    #[serde(default)]
+    pub anti_hoisting: Option<anti_hoisting::Configuration>,
 }
 
 impl Configuration {
