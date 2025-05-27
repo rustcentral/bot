@@ -158,6 +158,10 @@ async fn b64_encode_image(image_url: &str, max_dim: u32) -> anyhow::Result<Strin
         img
     };
 
+    // Ensure the image is always in a color format supported in JPEG. Transparent pixels would
+    // otherwise fail to decode and make the bot ignore the image.
+    let img = img.into_rgb8();
+
     let mut img_bytes = Vec::new();
     img.write_to(&mut Cursor::new(&mut img_bytes), ImageFormat::Jpeg)?;
 
