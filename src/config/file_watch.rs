@@ -137,3 +137,72 @@ fn watch_prompt(sender: UnboundedSender<Result<Event, notify::Error>>, prompt_pa
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs::write, time::Duration};
+    use tokio::time::sleep;
+
+    /// The text in the file must be the same as what is loaded into the prompt.
+    #[tokio::test]
+    async fn load_in_prompt() {
+        let tempdir = tempfile::tempdir().expect("Unable to create temporary directory.");
+
+        let mut prompt_file = tempdir.path().to_path_buf();
+        prompt_file.push("prompt.txt");
+        let prompt_file = prompt_file.as_path();
+
+        write(prompt_file, "Test prompt data").expect("Unable to write dummy prompt data");
+
+        let prompt = load_prompt(prompt_file)
+            .await
+            .expect("Unable to load prompt file");
+
+        assert_eq!(
+            *prompt.lock().expect("Unable to lock mutex"),
+            "Test prompt data".into()
+        );
+    }
+
+    /// When the prompt file is modified the in memory prompt must change within a reasonable time frame.
+    #[tokio::test]
+    async fn prompt_is_updated() {
+        let tempdir = tempfile::tempdir().expect("Unable to create temporary directory.");
+
+        let mut prompt_file = tempdir.path().to_path_buf();
+        prompt_file.push("prompt.txt");
+        let prompt_file = prompt_file.as_path();
+
+        write(prompt_file, "Test prompt data").expect("Unable to write dummy prompt data");
+
+        let shared_prompt = load_prompt(prompt_file)
+            .await
+            .expect("Unable to load prompt file");
+
+        monitor_prompt(prompt_file, shared_prompt.clone());
+
+        // Prevent race condition where file is written to before watcher inits.
+        sleep(Duration::from_secs(1)).await;
+
+        write(prompt_file, "New prompt data!").expect("Unable to write new prompt data");
+
+        let mut checks = 0;
+        loop {
+            sleep(Duration::from_millis(100)).await;
+
+            {
+                let data = shared_prompt.lock().expect("Mutex was poisoned");
+                if *data == "New prompt data!".into() {
+                    break;
+                }
+            }
+            checks += 1;
+            if checks == 20 {
+                panic!(
+                    "The shared prompt was not updated within ~2 sec after the prompt file was updated."
+                );
+            }
+        }
+    }
+}
