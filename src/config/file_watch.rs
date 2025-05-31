@@ -2,6 +2,7 @@ use notify::{Config, Event, RecommendedWatcher, Watcher};
 use std::{
     path::Path,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
@@ -9,6 +10,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 pub type SharedPrompt = Arc<Mutex<Box<str>>>;
 
 /// Reads the system prompt.
+#[doc(alias = "read_prompt")]
 pub async fn load_prompt(prompt_path: &Path) -> Result<SharedPrompt, std::io::Error> {
     let current_prompt = tokio::fs::read_to_string(&prompt_path).await?;
     Ok(Arc::new(Mutex::new(current_prompt.into_boxed_str())))
@@ -90,11 +92,6 @@ async fn update_prompt(
 
 /// Watches the system prompt file for changes.
 fn watch_prompt(sender: UnboundedSender<Result<Event, notify::Error>>, prompt_path: &Path) {
-    let Some(prompt_dir) = prompt_path.parent() else {
-        tracing::error!("Unable to get directory for prompt.");
-        return;
-    };
-
     let event_handler = move |event| {
         if sender.send(event).is_err() {
             tracing::error!("Unable to send prompt information internally.");
@@ -113,9 +110,30 @@ fn watch_prompt(sender: UnboundedSender<Result<Event, notify::Error>>, prompt_pa
         }
     };
 
-    // See watcher docs for why watching directory.
-    if let Err(err) = watcher.watch(prompt_dir, notify::RecursiveMode::NonRecursive) {
-        tracing::error!("Unable to watch system prompt: {err}");
-        tracing::error!("The system prompt will only be updated when the program is restarted.");
+    // Boxed to moved across threads.
+    let prompt_dir: Box<Path> = match prompt_path.parent() {
+        Some(parent) => parent.into(),
+        None => {
+            tracing::error!("Unable to get directory for prompt.");
+            return;
+        }
     };
+
+    // Watcher needs to live for duration of program.
+    // This wasn't documented anywhere :/
+    tokio::spawn(async move {
+        // See watcher docs for why watching directory.
+        if let Err(err) = watcher.watch(&prompt_dir, notify::RecursiveMode::NonRecursive) {
+            tracing::error!("Unable to watch system prompt: {err}");
+            tracing::error!(
+                "The system prompt will only be updated when the program is restarted."
+            );
+        };
+
+        // Watcher needs to live for duration of program.
+        // If you remove this it *will* break.
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
 }
