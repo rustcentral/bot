@@ -22,7 +22,7 @@ use twilight_http::Client;
 use twilight_model::id::{Id, marker::ChannelMarker};
 use user_message::queue_messages;
 
-use crate::error::send_error_msg;
+use crate::{config::file_watch::SharedPrompt, error::send_error_msg};
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
@@ -71,6 +71,7 @@ pub async fn serve(
     config: Configuration,
     events: broadcast::Receiver<Arc<Event>>,
     http: Arc<Client>,
+    shared_prompt: SharedPrompt,
 ) {
     let mut llm_config = OpenAIConfig::new().with_api_key(&config.llm_api_key);
     if let Some(api_base) = &config.llm_api_base {
@@ -108,9 +109,21 @@ pub async fn serve(
             break;
         }
 
-        let system_prompt = ChatCompletionRequestMessage::System(
-            include_str!("./ai_channel/system_prompt.txt").into(),
-        );
+        let current_prompt = {
+            let Ok(data) = shared_prompt.lock() else {
+                tracing::error!("Shared prompt invalid; Will re-check prompt after a wait.");
+                tracing::error!(
+                    "If this doesn't fix itself edit the system_prompt file to force a reload."
+                );
+
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
+                continue;
+            };
+
+            //TODO(tye): does this clone the data everytime. If so, is that too expensive?
+            ChatCompletionRequestMessage::System(data.as_ref().into())
+        };
 
         for msg in &new_messages {
             let msg =
@@ -133,7 +146,7 @@ pub async fn serve(
             debug!("Downsized history to {}", history.len());
         }
 
-        let messages: Vec<_> = [system_prompt]
+        let messages: Vec<_> = [current_prompt]
             .into_iter()
             .chain(history.iter().cloned())
             .collect();

@@ -2,6 +2,7 @@ mod ai_channel;
 mod config;
 mod error;
 
+use config::file_watch::{load_prompt, monitor_prompt};
 use std::{path::Path, sync::Arc};
 use tokio::{select, sync::broadcast};
 use tracing::{error, info, level_filters::LevelFilter};
@@ -23,6 +24,12 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = config::Configuration::read_with_env("CONFIG_PATH", [Path::new("bot.toml")])?;
+
+    let shared_prompt = load_prompt(&config.prompt_path)
+        .await
+        .inspect_err(|err| tracing::error!("Unable to read system prompt: {err}"))?;
+
+    monitor_prompt(&config.prompt_path, shared_prompt.clone());
 
     let shard = Shard::new(
         ShardId::ONE,
@@ -49,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
             ai_channel_config,
             event_rx.resubscribe(),
             http.clone(),
+            shared_prompt.clone(),
         ));
     }
 
