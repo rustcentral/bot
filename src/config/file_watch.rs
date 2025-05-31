@@ -55,6 +55,11 @@ async fn update_prompt(
             }
         };
 
+        // Access events spam (personal experience).
+        if !(event.kind.is_modify() || event.kind.is_other()) {
+            continue;
+        }
+
         // Check if the event was for the system prompt path
         let for_prompt_file = event
             .paths
