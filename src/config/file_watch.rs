@@ -1,5 +1,6 @@
 use notify::{Config, Event, RecommendedWatcher, Watcher};
 use std::{
+    hash::{DefaultHasher, Hash, Hasher},
     path::Path,
     sync::{Arc, Mutex},
     time::Duration,
@@ -46,6 +47,8 @@ async fn update_prompt(
     prompt: Arc<Mutex<Box<str>>>,
     prompt_path: Box<Path>,
 ) {
+    let mut previous_hash = None;
+
     while let Some(event) = receiver.recv().await {
         let event: Event = match event {
             Ok(var) => var,
@@ -80,6 +83,20 @@ async fn update_prompt(
             Ok(var) => var.into_boxed_str(),
             Err(_) => todo!(),
         };
+
+        // Check hash to ensure file has changed.
+        // Sometimes there are multiple events with the same file content.
+        {
+            let mut hasher = DefaultHasher::new();
+            new_prompt.hash(&mut hasher);
+            let current_hash = hasher.finish();
+
+            if previous_hash.is_some_and(|prev| prev == current_hash) {
+                continue;
+            }
+
+            previous_hash = Some(current_hash);
+        }
 
         // Keep mutex in own scope so guard is dropped quickly.
         {
