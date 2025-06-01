@@ -1,14 +1,10 @@
 use notify::{Config, Event, RecommendedWatcher, Watcher};
-use std::{
-    hash::{DefaultHasher, Hash, Hasher},
-    path::Path,
-};
-use tokio::sync::{
-    mpsc::{self, UnboundedReceiver, UnboundedSender},
-    watch,
-};
+use std::path::Path;
+use tokio::sync::watch;
 
-/// Reads the system prompt.
+/// Reads the system prompt into a [`watch`] channel.
+///
+/// The [`watch::Receiver`] will have its value updated when the system prompt file is modified.
 #[doc(alias = "read_prompt")]
 pub async fn load_prompt(
     prompt_path: &Path,
@@ -33,94 +29,10 @@ pub fn monitor_prompt(path: &Path, prompt_sender: watch::Sender<Box<str>>) {
         return;
     };
 
-    let (event_sender, event_receiver) = mpsc::unbounded_channel();
-
-    watch_prompt(prompt_path.as_path(), event_sender, prompt_sender.clone());
-
-    tokio::spawn(update_prompt(
-        prompt_path.into_boxed_path(),
-        event_receiver,
-        prompt_sender,
-    ));
-}
-
-/// Updates the [`SharedPrompt`] if the system prompt file has been modified.
-async fn update_prompt(
-    prompt_path: Box<Path>,
-    mut event_receiver: UnboundedReceiver<Result<Event, notify::Error>>,
-    prompt_sender: watch::Sender<Box<str>>,
-) {
-    let mut previous_hash = None;
-
-    while let Some(event) = event_receiver.recv().await {
-        let event: Event = match event {
-            Ok(var) => var,
-            Err(err) => {
-                tracing::error!("Error whilst watching system prompt file: {err}");
-                continue;
-            }
-        };
-
-        // Access events spam (personal experience).
-        if !(event.kind.is_modify() || event.kind.is_other()) {
-            continue;
-        }
-
-        // Check if the event was for the system prompt path
-        let for_prompt_file = event
-            .paths
-            .iter()
-            .filter(|path| {
-                path.canonicalize()
-                    .ok()
-                    .is_some_and(|path| *path == *prompt_path)
-            })
-            .count()
-            != 0;
-
-        if !for_prompt_file {
-            continue;
-        }
-
-        let new_prompt = match tokio::fs::read_to_string(&prompt_path).await {
-            Ok(var) => var.into_boxed_str(),
-            Err(_) => todo!(),
-        };
-
-        // Check hash to ensure file has changed.
-        // Sometimes there are multiple events with the same file content.
-        {
-            let mut hasher = DefaultHasher::new();
-            new_prompt.hash(&mut hasher);
-            let current_hash = hasher.finish();
-
-            if previous_hash.is_some_and(|prev| prev == current_hash) {
-                continue;
-            }
-
-            previous_hash = Some(current_hash);
-        }
-
-        prompt_sender.send_modify(|prompt| *prompt = new_prompt);
-
-        tracing::info!("Updated system prompt");
-    }
-}
-
-/// Watches the system prompt file for changes.
-fn watch_prompt(
-    prompt_path: &Path,
-    sender: UnboundedSender<Result<Event, notify::Error>>,
-    prompt_sender: watch::Sender<Box<str>>,
-) {
-    let event_handler = move |event| {
-        if sender.send(event).is_err() {
-            tracing::error!("Unable to send prompt information internally.");
-            tracing::error!("Prompt will not be updated.");
-        }
-    };
-
-    let mut watcher = match RecommendedWatcher::new(event_handler, Config::default()) {
+    let mut watcher = match RecommendedWatcher::new(
+        create_event_handler(prompt_sender.clone(), prompt_path.clone().into_boxed_path()),
+        Config::default(),
+    ) {
         Ok(var) => var,
         Err(err) => {
             tracing::error!("Unable to start watcher for prompt: {err}");
@@ -155,6 +67,52 @@ fn watch_prompt(
         // If you remove this it *will* break.
         prompt_sender.closed().await;
     });
+}
+
+/// Creates the event handler for updating the system prompt.
+fn create_event_handler(
+    sender: watch::Sender<Box<str>>,
+    prompt_path: Box<Path>,
+) -> impl Fn(Result<Event, notify::Error>) {
+    move |event| {
+        let event: Event = match event {
+            Ok(var) => var,
+            Err(err) => {
+                tracing::error!("Error whilst watching system prompt file: {err}");
+                return;
+            }
+        };
+
+        // Access events spam (personal experience).
+        if !(event.kind.is_modify() || event.kind.is_other()) {
+            return;
+        }
+
+        // Check if the event was for the system prompt path
+        let for_prompt_file = event
+            .paths
+            .iter()
+            .filter(|path| {
+                path.canonicalize()
+                    .ok()
+                    .is_some_and(|path| *path == *prompt_path)
+            })
+            .count()
+            != 0;
+
+        if !for_prompt_file {
+            return;
+        }
+
+        let new_prompt = match std::fs::read_to_string(&prompt_path) {
+            Ok(var) => var.into_boxed_str(),
+            Err(_) => todo!(),
+        };
+
+        sender.send_modify(|prompt| *prompt = new_prompt);
+
+        tracing::info!("Updated system prompt");
+    }
 }
 
 #[cfg(test)]
