@@ -1,10 +1,11 @@
+use anyhow::anyhow;
 use notify::{Config, Event, RecommendedWatcher, Watcher};
 use std::path::Path;
 use tokio::sync::watch;
 
-/// Reads the system prompt into a [`watch`] channel.
+/// Reads the channel prompt into a [`watch`] channel.
 ///
-/// The [`watch::Receiver`] will have its value updated when the system prompt file is modified.
+/// The [`watch::Receiver`] will have its value updated when the channel prompt file is modified.
 #[doc(alias = "read_prompt")]
 pub async fn load_prompt(
     prompt_path: &Path,
@@ -16,17 +17,15 @@ pub async fn load_prompt(
     Ok(watch::channel(current_prompt))
 }
 
-/// Monitors the system prompt file for changes.
+/// Monitors the channel prompt file for changes.
 ///
 /// # Panics
 /// If this function is called from outside of a tokio runtime.
-pub fn monitor_prompt(path: &Path, prompt_sender: watch::Sender<Box<str>>) {
+pub fn monitor_prompt(path: &Path, prompt_sender: watch::Sender<Box<str>>) -> anyhow::Result<()> {
     // Normalises the path.
     // The path is compared with to filter events later.
     let Ok(prompt_path) = path.canonicalize() else {
-        tracing::error!("Unable to get canonical path for system prompt.");
-        tracing::error!("The system prompt will only be updated when the program is restarted.");
-        return;
+        return Err(anyhow!("Unable to get canonical path for channel prompt",));
     };
 
     let mut watcher = match RecommendedWatcher::new(
@@ -35,11 +34,7 @@ pub fn monitor_prompt(path: &Path, prompt_sender: watch::Sender<Box<str>>) {
     ) {
         Ok(var) => var,
         Err(err) => {
-            tracing::error!("Unable to start watcher for prompt: {err}");
-            tracing::error!(
-                "The system prompt will only be updated when the program is restarted."
-            );
-            return;
+            return Err(anyhow!("Unable to start watcher for channel prompt: {err}"));
         }
     };
 
@@ -47,29 +42,26 @@ pub fn monitor_prompt(path: &Path, prompt_sender: watch::Sender<Box<str>>) {
     let prompt_dir: Box<Path> = match prompt_path.parent() {
         Some(parent) => parent.into(),
         None => {
-            tracing::error!("Unable to get directory for prompt.");
-            return;
+            return Err(anyhow!("Unable to get directory for channel prompt"));
         }
     };
 
-    // Watcher needs to live for duration of program.
-    // This wasn't documented anywhere :/
-    tokio::spawn(async move {
-        // See watcher docs for why watching directory.
-        if let Err(err) = watcher.watch(&prompt_dir, notify::RecursiveMode::NonRecursive) {
-            tracing::error!("Unable to watch system prompt: {err}");
-            tracing::error!(
-                "The system prompt will only be updated when the program is restarted."
-            );
-        };
+    // See watcher docs for why watching directory.
+    if let Err(err) = watcher.watch(&prompt_dir, notify::RecursiveMode::NonRecursive) {
+        return Err(anyhow!("Unable to start watching channel prompt: {err}"));
+    };
 
-        // Watcher needs to live for duration of program.
-        // If you remove this it *will* break.
+    // Watcher needs to live for duration of program.
+    tokio::spawn(async move {
         prompt_sender.closed().await;
+        // Ensure task takes ownership of watcher.
+        drop(watcher);
     });
+
+    Ok(())
 }
 
-/// Creates the event handler for updating the system prompt.
+/// Creates the event handler for updating the channel prompt.
 fn create_event_handler(
     sender: watch::Sender<Box<str>>,
     prompt_path: Box<Path>,
@@ -78,7 +70,11 @@ fn create_event_handler(
         let event: Event = match event {
             Ok(var) => var,
             Err(err) => {
-                tracing::error!("Error whilst watching system prompt file: {err}");
+                tracing::error!(
+                    "Error whilst watching channel prompt file '{}'",
+                    prompt_path.display()
+                );
+                tracing::error!("{err}");
                 return;
             }
         };
@@ -88,7 +84,7 @@ fn create_event_handler(
             return;
         }
 
-        // Check if the event was for the system prompt path
+        // Check if the event was for this channel prompt path
         let for_prompt_file = event
             .paths
             .iter()
@@ -111,7 +107,10 @@ fn create_event_handler(
 
         sender.send_modify(|prompt| *prompt = new_prompt);
 
-        tracing::info!("Updated system prompt");
+        tracing::info!(
+            "Updated channel prompt for file at '{}'",
+            prompt_path.display()
+        );
     }
 }
 
@@ -154,7 +153,7 @@ mod tests {
             .await
             .expect("Unable to load prompt file");
 
-        monitor_prompt(prompt_file, prompt_sender);
+        monitor_prompt(prompt_file, prompt_sender).expect("Unable to monitor channel prompt");
 
         // Prevent race condition where file is written to before watcher inits.
         sleep(Duration::from_secs(1)).await;

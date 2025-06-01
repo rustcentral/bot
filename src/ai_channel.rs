@@ -32,7 +32,7 @@ pub struct Configuration {
     llm_api_base: Option<String>,
     model_name: String,
     /// The maximum amount of messages to include as history when generating a response. This does
-    /// *not* include the system prompt.
+    /// *not* include the channel prompt.
     ///
     /// When this limit is reached, the bot will remove messages until it the history has
     /// `min_history_size` messages.

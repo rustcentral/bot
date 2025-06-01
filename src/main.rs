@@ -59,7 +59,14 @@ async fn main() -> anyhow::Result<()> {
                 }
             };
 
-        monitor_prompt(ai_channel_config.get_prompt_path(), prompt_sender);
+        if let Err(err) = monitor_prompt(ai_channel_config.get_prompt_path(), prompt_sender) {
+            tracing::error!(
+                "Unable to watch prompt file at '{}' for channel '{}'. The channel will be active, but the prompt wont be updated unless the program is restarted.",
+                ai_channel_config.get_prompt_path().display(),
+                ai_channel_config.get_channel_id()
+            );
+            tracing::error!("{err}");
+        };
 
         tokio::spawn(ai_channel::serve(
             ai_channel_config,
