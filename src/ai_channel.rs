@@ -1,6 +1,6 @@
 mod user_message;
 
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{collections::VecDeque, path::Path, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use async_openai::{
@@ -52,6 +52,20 @@ pub struct Configuration {
     /// Images that have one or both dimensions bigger than this value will be downsized.
     #[serde(default = "default_max_image_size")]
     max_image_size: u32,
+    /// The filepath to the prompt used for this channel.
+    ///
+    /// This should be a plain text file.
+    prompt_path: Box<Path>,
+}
+
+impl Configuration {
+    pub fn get_prompt_path(&self) -> &Path {
+        self.prompt_path.as_ref()
+    }
+
+    pub fn get_channel_id(&self) -> &Id<ChannelMarker> {
+        &self.channel_id
+    }
 }
 
 fn default_max_history_size() -> u32 {

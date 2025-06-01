@@ -25,12 +25,6 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::Configuration::read_with_env("CONFIG_PATH", [Path::new("bot.toml")])?;
 
-    let (prompt_sender, prompt_receiver) = load_prompt(&config.prompt_path)
-        .await
-        .inspect_err(|err| tracing::error!("Unable to read system prompt: {err}"))?;
-
-    monitor_prompt(&config.prompt_path, prompt_sender);
-
     let shard = Shard::new(
         ShardId::ONE,
         config.token.clone(),
@@ -52,11 +46,26 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Serving {} AI channel(s)", config.ai_channels.len());
     for ai_channel_config in config.ai_channels {
+        let (prompt_sender, prompt_receiver) =
+            match load_prompt(ai_channel_config.get_prompt_path()).await {
+                Ok(var) => var,
+                Err(err) => {
+                    tracing::error!("Unable to read channel prompt: {err}");
+                    tracing::error!(
+                        "Channel with id '{}' will not be activated",
+                        ai_channel_config.get_channel_id()
+                    );
+                    continue;
+                }
+            };
+
+        monitor_prompt(ai_channel_config.get_prompt_path(), prompt_sender);
+
         tokio::spawn(ai_channel::serve(
             ai_channel_config,
             event_rx.resubscribe(),
             http.clone(),
-            prompt_receiver.clone(),
+            prompt_receiver,
         ));
     }
 

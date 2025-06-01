@@ -15,10 +15,6 @@ pub struct Configuration {
     pub token: String,
     #[serde(default, rename = "ai_channel")]
     pub ai_channels: Vec<ai_channel::Configuration>,
-    /// The filepath to the system prompt.
-    ///
-    /// This should be a plain text file.
-    pub prompt_path: Box<Path>,
 }
 
 impl Configuration {
