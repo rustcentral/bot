@@ -2,54 +2,57 @@ use notify::{Config, Event, RecommendedWatcher, Watcher};
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
     path::Path,
-    sync::{Arc, Mutex},
-    time::Duration,
 };
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-
-/// Shares the system prompt across threads whilst allowing it to be updated.
-pub type SharedPrompt = Arc<Mutex<Box<str>>>;
+use tokio::sync::{
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
+    watch,
+};
 
 /// Reads the system prompt.
 #[doc(alias = "read_prompt")]
-pub async fn load_prompt(prompt_path: &Path) -> Result<SharedPrompt, std::io::Error> {
-    let current_prompt = tokio::fs::read_to_string(&prompt_path).await?;
-    Ok(Arc::new(Mutex::new(current_prompt.into_boxed_str())))
+pub async fn load_prompt(
+    prompt_path: &Path,
+) -> Result<(watch::Sender<Box<str>>, watch::Receiver<Box<str>>), std::io::Error> {
+    let current_prompt = tokio::fs::read_to_string(&prompt_path)
+        .await?
+        .into_boxed_str();
+
+    Ok(watch::channel(current_prompt))
 }
 
-/// Monitors the system prompt file for changes and updates the [`SharedPrompt`] accordingly.
+/// Monitors the system prompt file for changes.
 ///
 /// # Panics
 /// If this function is called from outside of a tokio runtime.
-pub fn monitor_prompt(prompt_path: &Path, shared_prompt: SharedPrompt) {
+pub fn monitor_prompt(path: &Path, prompt_sender: watch::Sender<Box<str>>) {
     // Normalises the path.
     // The path is compared with to filter events later.
-    let Ok(prompt_path) = prompt_path.canonicalize() else {
+    let Ok(prompt_path) = path.canonicalize() else {
         tracing::error!("Unable to get canonical path for system prompt.");
         tracing::error!("The system prompt will only be updated when the program is restarted.");
         return;
     };
 
-    let (sender, receiver) = mpsc::unbounded_channel();
+    let (event_sender, event_receiver) = mpsc::unbounded_channel();
 
-    watch_prompt(sender, prompt_path.as_path());
+    watch_prompt(prompt_path.as_path(), event_sender, prompt_sender.clone());
 
     tokio::spawn(update_prompt(
-        receiver,
-        shared_prompt.clone(),
         prompt_path.into_boxed_path(),
+        event_receiver,
+        prompt_sender,
     ));
 }
 
 /// Updates the [`SharedPrompt`] if the system prompt file has been modified.
 async fn update_prompt(
-    mut receiver: UnboundedReceiver<Result<Event, notify::Error>>,
-    prompt: Arc<Mutex<Box<str>>>,
     prompt_path: Box<Path>,
+    mut event_receiver: UnboundedReceiver<Result<Event, notify::Error>>,
+    prompt_sender: watch::Sender<Box<str>>,
 ) {
     let mut previous_hash = None;
 
-    while let Some(event) = receiver.recv().await {
+    while let Some(event) = event_receiver.recv().await {
         let event: Event = match event {
             Ok(var) => var,
             Err(err) => {
@@ -98,22 +101,18 @@ async fn update_prompt(
             previous_hash = Some(current_hash);
         }
 
-        // Keep mutex in own scope so guard is dropped quickly.
-        {
-            let Ok(mut data) = prompt.lock() else {
-                tracing::error!("Internal prompt is invalid");
-                continue;
-            };
-
-            *data = new_prompt;
-        }
+        prompt_sender.send_modify(|prompt| *prompt = new_prompt);
 
         tracing::info!("Updated system prompt");
     }
 }
 
 /// Watches the system prompt file for changes.
-fn watch_prompt(sender: UnboundedSender<Result<Event, notify::Error>>, prompt_path: &Path) {
+fn watch_prompt(
+    prompt_path: &Path,
+    sender: UnboundedSender<Result<Event, notify::Error>>,
+    prompt_sender: watch::Sender<Box<str>>,
+) {
     let event_handler = move |event| {
         if sender.send(event).is_err() {
             tracing::error!("Unable to send prompt information internally.");
@@ -154,9 +153,7 @@ fn watch_prompt(sender: UnboundedSender<Result<Event, notify::Error>>, prompt_pa
 
         // Watcher needs to live for duration of program.
         // If you remove this it *will* break.
-        loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
+        prompt_sender.closed().await;
     });
 }
 
@@ -177,14 +174,11 @@ mod tests {
 
         write(prompt_file, "Test prompt data").expect("Unable to write dummy prompt data");
 
-        let prompt = load_prompt(prompt_file)
+        let (_, prompt_receiver) = load_prompt(prompt_file)
             .await
             .expect("Unable to load prompt file");
 
-        assert_eq!(
-            *prompt.lock().expect("Unable to lock mutex"),
-            "Test prompt data".into()
-        );
+        assert_eq!(*prompt_receiver.borrow(), "Test prompt data".into());
     }
 
     /// When the prompt file is modified the in memory prompt must change within a reasonable time frame.
@@ -198,11 +192,11 @@ mod tests {
 
         write(prompt_file, "Test prompt data").expect("Unable to write dummy prompt data");
 
-        let shared_prompt = load_prompt(prompt_file)
+        let (prompt_sender, prompt_receiver) = load_prompt(prompt_file)
             .await
             .expect("Unable to load prompt file");
 
-        monitor_prompt(prompt_file, shared_prompt.clone());
+        monitor_prompt(prompt_file, prompt_sender);
 
         // Prevent race condition where file is written to before watcher inits.
         sleep(Duration::from_secs(1)).await;
@@ -213,12 +207,10 @@ mod tests {
         loop {
             sleep(Duration::from_millis(100)).await;
 
-            {
-                let data = shared_prompt.lock().expect("Mutex was poisoned");
-                if *data == "New prompt data!".into() {
-                    break;
-                }
+            if *prompt_receiver.borrow() == "New prompt data!".into() {
+                break;
             }
+
             checks += 1;
             if checks == 20 {
                 panic!(

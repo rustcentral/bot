@@ -25,11 +25,11 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::Configuration::read_with_env("CONFIG_PATH", [Path::new("bot.toml")])?;
 
-    let shared_prompt = load_prompt(&config.prompt_path)
+    let (prompt_sender, prompt_receiver) = load_prompt(&config.prompt_path)
         .await
         .inspect_err(|err| tracing::error!("Unable to read system prompt: {err}"))?;
 
-    monitor_prompt(&config.prompt_path, shared_prompt.clone());
+    monitor_prompt(&config.prompt_path, prompt_sender);
 
     let shard = Shard::new(
         ShardId::ONE,
@@ -56,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
             ai_channel_config,
             event_rx.resubscribe(),
             http.clone(),
-            shared_prompt.clone(),
+            prompt_receiver.clone(),
         ));
     }
 
