@@ -1,0 +1,61 @@
+# If you don't know what this is have a read through the official discord bot documentation.
+#
+# !! THIS TOKEN SHOULD NEVER BE SHARED WITH ANYONE !!
+# !! CONSIDER IT THE PASSWORD TO YOUR BOT !!
+token = "DISCORD BOT TOKEN HERE"
+
+[[ai_channel]]
+# This is the discord channel that the bot will interact with users in.
+# The channel ID can be found be using developer mode in discord.
+#
+# For this the work the bot needs to be a member of the server that the channel is in.
+channel_id = 1346872485395828902
+
+# The API key for the LLM.
+#
+# !! THIS MUST BE KEPT SECRET !!
+llm_api_key = "LLM API KEY HERE"
+
+# The LLM model to be used from the "llm_api_base".
+# If using the default "llm_api_base" the available models are listed at: https://platform.openai.com/docs/models
+model_name = "gemini-2.0-flash"
+
+# ~~~ OPTIONAL FIELDS ~~~
+
+# The API to query for LLM responses.
+# 
+# DEFAULTS TO: "https://api.openai.com/v1".
+llm_api_base = "https://api.openai.com/v1"
+
+# The maximum amount of previous messages from the discord channel to include in the LLM prompt.
+# When this limit is exceeded, messages will be removed until there is less than "min_history_size".
+#
+# DEFAULTS TO: 40
+max_history_size = 40
+
+# The minimum amount of previous messages from the discord channel to retain when "max_histor_size" is exceeded.
+#
+# DEFAULTS TO: 30
+min_history_size = 30
+
+# Send images as well as messages to the LLM.
+# This requires that the used LLM supports images.
+# 
+# !! WARNING: This can be expensive !!
+#
+# DEFAULTS TO: false
+image_support = false
+
+# Images that have a height and/or width larger than this will be resize to this size (in pixels).
+# This option does nothing is "image_support" is false.
+#
+# DEFAULTS TO: 800
+max_image_size = 800
+
+# ~~~~~~~~~~~~~~~~~~~~~~~
+
+# Adding a second channel looks like so.
+[[ai_channel]]
+channel_id = 1111111111111111111
+llm_api_key = ""
+model_name = ""
