@@ -18,7 +18,7 @@ llm_api_key = "LLM API KEY HERE"
 
 # The LLM model to be used from the "llm_api_base".
 # If using the default "llm_api_base" the available models are listed at: https://platform.openai.com/docs/models
-model_name = "gemini-2.0-flash"
+model_name = "gpt-3.5-turbo"
 
 # ~~~ OPTIONAL FIELDS ~~~
 
