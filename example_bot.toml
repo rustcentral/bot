@@ -46,8 +46,8 @@ min_history_size = 30
 # DEFAULTS TO: false
 image_support = false
 
-# Images that have a height and/or width larger than this will be resize to this size (in pixels).
-# This option does nothing is "image_support" is false.
+# Images that have a height and/or width larger than this will be resized to this size (in pixels).
+# This option does nothing if "image_support" is false.
 #
 # DEFAULTS TO: 800
 max_image_size = 800
