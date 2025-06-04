@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use notify::{Config, Event, RecommendedWatcher, Watcher};
-use std::path::Path;
+use std::{fs::File, path::Path};
 use tokio::sync::watch;
 
 /// Reads the channel prompt into a [`watch`] channel.
@@ -65,7 +65,11 @@ pub fn monitor_prompt(path: &Path, prompt_sender: watch::Sender<Box<str>>) -> an
 fn create_event_handler(
     sender: watch::Sender<Box<str>>,
     prompt_path: Box<Path>,
-) -> impl Fn(Result<Event, notify::Error>) {
+) -> impl FnMut(Result<Event, notify::Error>) {
+    let mut last_modified = File::open(&prompt_path)
+        .and_then(|file| file.metadata())
+        .and_then(|metadata| metadata.modified());
+
     move |event| {
         let event: Event = match event {
             Ok(var) => var,
@@ -100,6 +104,34 @@ fn create_event_handler(
             return;
         }
 
+        // Check if we have read in this version of the file before
+        let modified = File::open(&prompt_path)
+            .and_then(|file| file.metadata())
+            .and_then(|metadata| metadata.modified());
+
+        match (modified, &mut last_modified) {
+            (Ok(modified), Ok(last_modified)) => {
+                if modified == *last_modified {
+                    tracing::debug!(
+                        "Prompt file '{}' has not been modified since last read. Skipping updating prompt in memory.",
+                        prompt_path.display()
+                    );
+                    return;
+                }
+
+                *last_modified = modified;
+            }
+            (Ok(modified), last_modified @ Err(_)) => {
+                *last_modified = Ok(modified);
+            }
+            (Err(_), Ok(_)) | (Err(_), Err(_)) => {
+                tracing::warn!(
+                    "Unable to verify if '{}' prompt file has been modified or not. Updating regardless.",
+                    prompt_path.display()
+                );
+            }
+        }
+
         let new_prompt = match std::fs::read_to_string(&prompt_path) {
             Ok(var) => var.into_boxed_str(),
             Err(_) => todo!(),
@@ -108,7 +140,7 @@ fn create_event_handler(
         sender.send_modify(|prompt| *prompt = new_prompt);
 
         tracing::info!(
-            "Updated channel prompt for file at '{}'",
+            "Updated channel prompts for file at '{}'",
             prompt_path.display()
         );
     }
