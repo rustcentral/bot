@@ -134,7 +134,13 @@ fn create_event_handler(
 
         let new_prompt = match std::fs::read_to_string(&prompt_path) {
             Ok(var) => var.into_boxed_str(),
-            Err(_) => todo!(),
+            Err(err) => {
+                tracing::error!(
+                    "Unable to read prompts file at '{}' : '{err}'",
+                    prompt_path.display()
+                );
+                return;
+            }
         };
 
         sender.send_modify(|prompt| *prompt = new_prompt);
