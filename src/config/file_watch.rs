@@ -214,4 +214,32 @@ mod tests {
             }
         }
     }
+
+    /// If a prompt file is deleted then the old contents will remain as the prompt.
+    #[tokio::test]
+    async fn prompt_is_deleted() {
+        let tempdir = tempfile::tempdir().expect("Unable to create temporary directory.");
+
+        let mut prompt_file = tempdir.path().to_path_buf();
+        prompt_file.push("prompt.txt");
+        let prompt_file = prompt_file.as_path();
+
+        write(prompt_file, "Test prompt data").expect("Unable to write dummy prompt data");
+
+        let (prompt_sender, prompt_receiver) = load_prompt(prompt_file)
+            .await
+            .expect("Unable to load prompt file");
+
+        monitor_prompt(prompt_file, prompt_sender).expect("Unable to monitor channel prompt");
+
+        // Prevent race condition where file is modified to before watcher inits.
+        sleep(Duration::from_millis(200)).await;
+
+        std::fs::remove_file(prompt_file).expect("Unable to remove prompt file");
+
+        // Ensure callback has enough time to run
+        sleep(Duration::from_millis(200)).await;
+
+        assert_eq!(*prompt_receiver.borrow(), "Test prompt data".into());
+    }
 }
