@@ -46,13 +46,30 @@ impl Configuration {
     ) -> anyhow::Result<Self> {
         match env::var(env_var) {
             Ok(paths) => {
-                let paths = paths
-                    .split(',')
-                    .map(PathBuf::from)
-                    .collect::<Vec<_>>();
+                let paths = paths.split(',').map(PathBuf::from).collect::<Vec<_>>();
                 Self::read(paths.iter().map(|p| p.as_path()))
             }
             Err(_) => Self::read(default),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ensures that the example config file is valid.
+    #[test]
+    fn example_config_valid() {
+        // Using a temp dir to avoid have to create a build script to copy the example toml into ./target
+        let temp_dir = tempfile::tempdir().expect("Unable to create tempoary directory");
+
+        let mut example_toml = temp_dir.path().to_path_buf();
+        example_toml.push("example_bot.toml");
+        std::fs::write(&example_toml, include_str!("../example_bot.toml"))
+            .expect("Unable to write example data to temp file");
+
+        Configuration::read([example_toml.as_path()])
+            .expect("Unable to parse example configuration file.");
     }
 }
