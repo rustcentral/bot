@@ -20,6 +20,13 @@ llm_api_key = "LLM API KEY HERE"
 # If using the default "llm_api_base" the available models are listed at: https://platform.openai.com/docs/models
 model_name = "gpt-3.5-turbo"
 
+# The path to the prompt that will be sent to the LLM with the message history of the discord channel.
+# The prompt will be sent first, with the discord messages appended after.
+# 
+# Modifying the prompt file will update the prompt sent to the LLM.
+# Each channel can the same or different prompts.
+prompt_path = "./system_prompt.txt"
+
 # ~~~ OPTIONAL FIELDS ~~~
 
 # The API to query for LLM responses.
@@ -59,3 +66,4 @@ max_image_size = 800
 channel_id = 1111111111111111111
 llm_api_key = ""
 model_name = ""
+prompt_path = ""
