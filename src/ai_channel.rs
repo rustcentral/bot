@@ -13,7 +13,7 @@ use async_openai::{
 };
 use serde::Deserialize;
 use tokio::{
-    sync::{broadcast, mpsc, watch},
+    sync::{broadcast, mpsc},
     time::{Instant, sleep_until},
 };
 use tracing::{debug, error};
@@ -22,7 +22,10 @@ use twilight_http::Client;
 use twilight_model::id::{Id, marker::ChannelMarker};
 use user_message::queue_messages;
 
-use crate::error::send_error_msg;
+use crate::{
+    config::file_watch::{load_prompt, monitor_prompt},
+    error::send_error_msg,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
@@ -85,8 +88,28 @@ pub async fn serve(
     config: Configuration,
     events: broadcast::Receiver<Arc<Event>>,
     http: Arc<Client>,
-    prompt_receiver: watch::Receiver<Box<str>>,
 ) {
+    let (prompt_sender, prompt_receiver) = match load_prompt(config.get_prompt_path()).await {
+        Ok(var) => var,
+        Err(err) => {
+            tracing::error!("Unable to read channel prompt: {err}");
+            tracing::error!(
+                "Channel with id '{}' will not be activated",
+                config.get_channel_id()
+            );
+            return;
+        }
+    };
+
+    if let Err(err) = monitor_prompt(config.get_prompt_path(), prompt_sender) {
+        tracing::error!(
+            "Unable to watch prompt file at '{}' for channel '{}'. The channel will be active, but the prompt wont be updated unless the program is restarted.",
+            config.get_prompt_path().display(),
+            config.get_channel_id()
+        );
+        tracing::error!("{err}");
+    };
+
     let mut llm_config = OpenAIConfig::new().with_api_key(&config.llm_api_key);
     if let Some(api_base) = &config.llm_api_base {
         llm_config = llm_config.with_api_base(api_base);

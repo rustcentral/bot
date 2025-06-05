@@ -2,7 +2,6 @@ mod ai_channel;
 mod config;
 mod error;
 
-use config::file_watch::{load_prompt, monitor_prompt};
 use std::{path::Path, sync::Arc};
 use tokio::{select, sync::broadcast};
 use tracing::{error, info, level_filters::LevelFilter};
@@ -46,33 +45,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Serving {} AI channel(s)", config.ai_channels.len());
     for ai_channel_config in config.ai_channels {
-        let (prompt_sender, prompt_receiver) =
-            match load_prompt(ai_channel_config.get_prompt_path()).await {
-                Ok(var) => var,
-                Err(err) => {
-                    tracing::error!("Unable to read channel prompt: {err}");
-                    tracing::error!(
-                        "Channel with id '{}' will not be activated",
-                        ai_channel_config.get_channel_id()
-                    );
-                    continue;
-                }
-            };
-
-        if let Err(err) = monitor_prompt(ai_channel_config.get_prompt_path(), prompt_sender) {
-            tracing::error!(
-                "Unable to watch prompt file at '{}' for channel '{}'. The channel will be active, but the prompt wont be updated unless the program is restarted.",
-                ai_channel_config.get_prompt_path().display(),
-                ai_channel_config.get_channel_id()
-            );
-            tracing::error!("{err}");
-        };
-
         tokio::spawn(ai_channel::serve(
             ai_channel_config,
             event_rx.resubscribe(),
             http.clone(),
-            prompt_receiver,
         ));
     }
 
