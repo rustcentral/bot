@@ -1,6 +1,6 @@
 mod user_message;
 
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{collections::VecDeque, path::Path, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use async_openai::{
@@ -22,7 +22,10 @@ use twilight_http::Client;
 use twilight_model::id::{Id, marker::ChannelMarker};
 use user_message::queue_messages;
 
-use crate::error::send_error_msg;
+use crate::{
+    config::file_watch::{load_prompt, monitor_prompt},
+    error::send_error_msg,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
@@ -32,7 +35,7 @@ pub struct Configuration {
     llm_api_base: Option<String>,
     model_name: String,
     /// The maximum amount of messages to include as history when generating a response. This does
-    /// *not* include the system prompt.
+    /// *not* include the channel prompt.
     ///
     /// When this limit is reached, the bot will remove messages until it the history has
     /// `min_history_size` messages.
@@ -52,6 +55,20 @@ pub struct Configuration {
     /// Images that have one or both dimensions bigger than this value will be downsized.
     #[serde(default = "default_max_image_size")]
     max_image_size: u32,
+    /// The filepath to the prompt used for this channel.
+    ///
+    /// This should be a plain text file.
+    prompt_path: Box<Path>,
+}
+
+impl Configuration {
+    pub fn get_prompt_path(&self) -> &Path {
+        self.prompt_path.as_ref()
+    }
+
+    pub fn get_channel_id(&self) -> &Id<ChannelMarker> {
+        &self.channel_id
+    }
 }
 
 fn default_max_history_size() -> u32 {
@@ -72,6 +89,27 @@ pub async fn serve(
     events: broadcast::Receiver<Arc<Event>>,
     http: Arc<Client>,
 ) {
+    let (prompt_sender, prompt_receiver) = match load_prompt(config.get_prompt_path()).await {
+        Ok(var) => var,
+        Err(err) => {
+            tracing::error!("Unable to read channel prompt: {err}");
+            tracing::error!(
+                "Channel with id '{}' will not be activated",
+                config.get_channel_id()
+            );
+            return;
+        }
+    };
+
+    if let Err(err) = monitor_prompt(config.get_prompt_path(), prompt_sender) {
+        tracing::error!(
+            "Unable to watch prompt file at '{}' for channel '{}'. The channel will be active, but the prompt wont be updated unless the program is restarted.",
+            config.get_prompt_path().display(),
+            config.get_channel_id()
+        );
+        tracing::error!("{err}");
+    };
+
     let mut llm_config = OpenAIConfig::new().with_api_key(&config.llm_api_key);
     if let Some(api_base) = &config.llm_api_base {
         llm_config = llm_config.with_api_base(api_base);
@@ -108,9 +146,8 @@ pub async fn serve(
             break;
         }
 
-        let system_prompt = ChatCompletionRequestMessage::System(
-            include_str!("./ai_channel/system_prompt.txt").into(),
-        );
+        let current_prompt =
+            ChatCompletionRequestMessage::System(prompt_receiver.borrow().as_ref().into());
 
         for msg in &new_messages {
             let msg =
@@ -133,7 +170,7 @@ pub async fn serve(
             debug!("Downsized history to {}", history.len());
         }
 
-        let messages: Vec<_> = [system_prompt]
+        let messages: Vec<_> = [current_prompt]
             .into_iter()
             .chain(history.iter().cloned())
             .collect();

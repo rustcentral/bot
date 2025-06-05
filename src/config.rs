@@ -7,6 +7,7 @@ use anyhow::Context;
 use serde::Deserialize;
 
 use crate::ai_channel;
+pub(crate) mod file_watch;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
