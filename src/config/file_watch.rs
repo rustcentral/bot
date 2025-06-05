@@ -194,7 +194,7 @@ mod tests {
         monitor_prompt(prompt_file, prompt_sender).expect("Unable to monitor channel prompt");
 
         // Prevent race condition where file is written to before watcher inits.
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_millis(200)).await;
 
         write(prompt_file, "New prompt data!").expect("Unable to write new prompt data");
 
