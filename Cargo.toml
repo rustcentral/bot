@@ -10,6 +10,7 @@ backoff = { version = "0.4.0", features = ["tokio"] }
 base64 = "0.22.1"
 config = { version = "0.15.11", default-features = false, features = ["async", "toml"] }
 image = "0.25.6"
+notify = "8.0.0"
 reqwest = "0.12.15"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.45.0", features = ["full"] }
